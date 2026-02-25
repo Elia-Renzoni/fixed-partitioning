@@ -84,7 +84,6 @@ func (s *Server) handleConnection() {
 	}()
 
 	for conn := range s.connPool {
-		serverCtx := model.NewConnContext()
 		buffer := make([]byte, 2048)
 		var (
 			bytesRed int
@@ -108,16 +107,17 @@ func (s *Server) handleConnection() {
 			break
 		}
 
-		res := &model.TCPResponse{}
+		serverCtx := model.NewConnContext()
+		res := serverCtx.TCPResponse
 		switch req.RequestType {
 		case model.ClientReq:
-			s.handleClientReq(req, res)
+			s.handleClientReq(serverCtx)
 		case model.ReplicationReq:
-			s.handleReplicationReq(req, res)
+			s.handleReplicationReq(serverCtx)
 		case model.ShardingReq:
-			s.handleShardingReq(req, res)
+			s.handleShardingReq(serverCtx)
 		case model.JoinReq:
-			s.handleJoinReq(req, res)
+			s.handleJoinReq(serverCtx)
 		default:
 			res.Message = "invalid request type"
 		}
@@ -125,19 +125,66 @@ func (s *Server) handleConnection() {
 		conn.Write(data)
 
 		conn.Close()
-
-		break
+		serverCtx.AbortJob()
 	}
 }
 
-func (s *Server) handleClientReq(req *model.TCPRequest, res *model.TCPResponse) {
+func (s *Server) handleClientReq(ctx model.ConnContext) {
+	var (
+		_   = ctx.TCPRequest
+		res = ctx.TCPResponse
+	)
+
+	select {
+	case <-ctx.Ctx.Done():
+		res.Message = ctx.Ctx.Err().Error()
+		return
+	default:
+		// handle request
+	}
 }
 
-func (s *Server) handleJoinReq(req *model.TCPRequest, res *model.TCPResponse) {
+func (s *Server) handleJoinReq(ctx model.ConnContext) {
+	var (
+		_   = ctx.TCPRequest
+		res = ctx.TCPResponse
+	)
+
+	select {
+	case <-ctx.Ctx.Done():
+		res.Message = ctx.Ctx.Err().Error()
+		return
+	default:
+		// handle request
+	}
 }
 
-func (s *Server) handleReplicationReq(req *model.TCPRequest, res *model.TCPResponse) {
+func (s *Server) handleReplicationReq(ctx model.ConnContext) {
+	var (
+		_   = ctx.TCPRequest
+		res = ctx.TCPResponse
+	)
+
+	select {
+	case <-ctx.Ctx.Done():
+		res.Message = ctx.Ctx.Err().Error()
+		return
+	default:
+		// handle request
+	}
 }
 
-func (s *Server) handleShardingReq(req *model.TCPRequest, res *model.TCPResponse) {
+func (s *Server) handleShardingReq(ctx model.ConnContext) {
+	var (
+		_   = ctx.TCPRequest
+		res = ctx.TCPResponse
+	)
+
+	select {
+	case <-ctx.Ctx.Done():
+		res.Message = ctx.Ctx.Err().Error()
+		return
+	default:
+		// handle request
+	}
 }
