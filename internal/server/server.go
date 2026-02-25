@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/fixed-partitioning/internal/model"
 	"github.com/google/uuid"
@@ -60,6 +61,8 @@ func (s *Server) DoListen() {
 			break
 		}
 
+		s.doConfigure(conn)
+
 		s.connPool <- conn
 		if s.poolCapacity.Load() > 0 {
 			s.poolCapacity.Add(-1)
@@ -68,12 +71,20 @@ func (s *Server) DoListen() {
 	}
 }
 
+func (s *Server) doConfigure(conn *net.TCPConn) {
+	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	conn.SetKeepAlive(true)
+	conn.SetLinger(-1)
+}
+
 func (s *Server) handleConnection() {
 	defer func() {
 		s.poolCapacity.Add(1)
 	}()
 
 	for conn := range s.connPool {
+		serverCtx := model.NewConnContext()
 		buffer := make([]byte, 2048)
 		var (
 			bytesRed int
@@ -114,6 +125,8 @@ func (s *Server) handleConnection() {
 		conn.Write(data)
 
 		conn.Close()
+
+		break
 	}
 }
 
