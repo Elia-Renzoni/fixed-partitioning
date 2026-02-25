@@ -1,12 +1,15 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"strconv"
 	"sync/atomic"
 
+	"github.com/fixed-partitioning/internal/model"
 	"github.com/google/uuid"
 )
 
@@ -71,6 +74,57 @@ func (s *Server) handleConnection() {
 	}()
 
 	for conn := range s.connPool {
+		buffer := make([]byte, 2048)
+		var (
+			bytesRed int
+			readErr  error
+		)
+		for {
+			bytesRed, readErr = conn.Read(buffer)
+			if readErr != nil {
+				if readErr != io.EOF {
+					log.Println("[ERR]: something went wrong while reading data")
+				}
+				break
+			}
+		}
 
+		req := &model.TCPRequest{}
+		data := buffer[:bytesRed]
+		err := json.Unmarshal(data, req)
+		if err != nil {
+			log.Println("[ERR]: something went wrong while unmarhsaling data")
+			break
+		}
+
+		res := &model.TCPResponse{}
+		switch req.RequestType {
+		case model.ClientReq:
+			s.handleClientReq(req, res)
+		case model.ReplicationReq:
+			s.handleReplicationReq(req, res)
+		case model.ShardingReq:
+			s.handleShardingReq(req, res)
+		case model.JoinReq:
+			s.handleJoinReq(req, res)
+		default:
+			res.Message = "invalid request type"
+		}
+		data, _ = json.Marshal(res)
+		conn.Write(data)
+
+		conn.Close()
 	}
+}
+
+func (s *Server) handleClientReq(req *model.TCPRequest, res *model.TCPResponse) {
+}
+
+func (s *Server) handleJoinReq(req *model.TCPRequest, res *model.TCPResponse) {
+}
+
+func (s *Server) handleReplicationReq(req *model.TCPRequest, res *model.TCPResponse) {
+}
+
+func (s *Server) handleShardingReq(req *model.TCPRequest, res *model.TCPResponse) {
 }
