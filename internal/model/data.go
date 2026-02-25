@@ -1,6 +1,10 @@
 package model
 
-import "net"
+import (
+	"context"
+	"net"
+	"time"
+)
 
 const (
 	ClientReq      = "client"
@@ -18,4 +22,25 @@ type TCPRequest struct {
 
 type TCPResponse struct {
 	Message string `json:"text"`
+}
+
+type ConnContext struct {
+	*TCPRequest
+	*TCPResponse
+	Ctx      context.Context
+	AbortJob context.CancelFunc
+}
+
+func NewConnContext() ConnContext {
+	ctx := ConnContext{
+		TCPRequest:  &TCPRequest{},
+		TCPResponse: &TCPResponse{},
+	}
+
+	ctx.Ctx, ctx.AbortJob = context.WithTimeout(
+		context.Background(),
+		time.Duration(3*time.Second),
+	)
+
+	return ctx
 }
