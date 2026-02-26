@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"math/rand/v2"
 	"sync"
 )
 
@@ -20,52 +21,44 @@ type MemTable struct {
 type skipListNode struct {
 	key        []byte
 	value      []byte
-	selfLevel  int
-	next       *skipListNode
+	nodeHeight int
 	nodeLevels []*skipListNode
 }
 
-func newSkipListNode(key, value []byte) *skipListNode {
+func newSkipListNode(key, value []byte, height int) *skipListNode {
 	return &skipListNode{
 		key:        key,
 		value:      value,
-		nodeLevels: make([]*skipListNode, 0, maxLevels),
+		nodeHeight: height,
+		nodeLevels: make([]*skipListNode, 0, height),
 	}
-}
-
-func (s *skipListNode) createLevels() {
-	for i := range maxLevels {
-		s.selfCopy(i)
-	}
-}
-
-func (s *skipListNode) selfCopy(latestLevel int) {
-	var l int
-	if latestLevel < len(s.nodeLevels) {
-		l = latestLevel + 1
-	}
-	s.nodeLevels = append(s.nodeLevels, &skipListNode{
-		selfLevel:  l,
-		nodeLevels: s.nodeLevels,
-	})
 }
 
 func NewMemTable() MemTable {
 	return MemTable{}
 }
 
-// [1]-----------[3]----[4]
-// [1]----[2]           [4]
 // [1]----[2]----[3]----[4]
 func (m *MemTable) AddDocument(documentKey, documentBody []byte) error {
 	if len(documentKey) == 0 || len(documentBody) == 0 {
 		return errors.New("empty data")
 	}
-	node := newSkipListNode(documentKey, documentBody)
-	node.createLevels()
 
-	if m.head == nil {
-		m.head = node
+	var (
+		node      = m.head
+		nodeLevel = m.calculateMaxNodeHeight()
+	)
+
+	for level := nodeLevel; level >= 0; level++ {
+		for node.nodeLevels[level] != nil {
+			if bytes.Compare(documentKey, node.key) <= 0 {
+				break
+			}
+			node = node.nodeLevels[level]
+		}
+		newNode := newSkipListNode(documentKey, documentBody, nodeLevel)
+		newNode.nodeLevels[level] = node.nodeLevels[level]
+		node.nodeLevels[level] = newNode
 	}
 
 	return nil
@@ -79,21 +72,35 @@ func (m *MemTable) FetchDocument(documentKey []byte) error {
 	return nil
 }
 
-func (m *MemTable) find(documentKey []byte) *skipListNode {
+func (m *MemTable) find(documentKey []byte) (*skipListNode, [maxLevels]*skipListNode) {
 	node := m.head
+	var tower [maxLevels]*skipListNode
 	for level := maxLevels; level > 0; level-- {
-		nextNode := node.nodeLevels[level].next
+		nextNode := node.nodeLevels[level]
 		for nextNode != nil {
 			if bytes.Compare(documentKey, nextNode.key) <= 0 {
 				break
 			}
 			node = nextNode
-			nextNode = nextNode.nodeLevels[level].next
+			nextNode = nextNode.nodeLevels[level]
 		}
+		tower[level] = node
 	}
 
 	if node != nil && bytes.Equal(documentKey, node.key) {
-		return node
+		return node, tower
 	}
-	return nil
+	return nil, tower
+}
+
+func (m *MemTable) calculateMaxNodeHeight() (height int) {
+	var (
+		probability float64 = 0.5
+	)
+
+	height = 1
+	for height < maxLevels && rand.Float64() < probability {
+		height += 1
+	}
+	return
 }
