@@ -6,18 +6,18 @@ import (
 	"sync"
 )
 
-type cluster struct {
+type Cluster struct {
 	mutex   sync.RWMutex
 	members []string
 }
 
-func newCluster() *cluster {
-	return &cluster{
+func NewCluster() *Cluster {
+	return &Cluster{
 		members: make([]string, 0),
 	}
 }
 
-func (c *cluster) addNode(joinedAddress string) error {
+func (c *Cluster) AddNode(joinedAddress string) error {
 	_, err := net.ResolveTCPAddr("tcp", joinedAddress)
 	if err != nil {
 		return err
@@ -36,9 +36,27 @@ func (c *cluster) addNode(joinedAddress string) error {
 	return nil
 }
 
-func (c *cluster) getAllNodes() []string {
+func (c *Cluster) GetAllNodes() []string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
 	return c.members
+}
+
+func (c *Cluster) Len() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return len(c.members)
+}
+
+func (c *Cluster) GetNodeFromLocation(index int) string {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	if index <= len(c.members) {
+		return c.members[index]
+	}
+
+	return ""
 }

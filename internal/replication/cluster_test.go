@@ -2,6 +2,8 @@ package replication_test
 
 import (
 	"testing"
+
+	"github.com/fixed-partitioning/internal/replication"
 )
 
 func TestCluster(t *testing.T) {
@@ -11,4 +13,10 @@ func TestCluster(t *testing.T) {
 		"172.44.11.22.1:4040",
 	}
 
+	cluster := replication.NewCluster()
+	for _, node := range nodes {
+		if err := cluster.AddNode(node); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
