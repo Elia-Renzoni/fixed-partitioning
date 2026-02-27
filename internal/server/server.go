@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fixed-partitioning/internal/model"
+	"github.com/fixed-partitioning/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +22,7 @@ type Server struct {
 	globalErr       error
 	connPool        chan *net.TCPConn
 	poolCapacity    atomic.Int64
+	memTable        store.MemTable
 }
 
 func NewServer(host, port string) (*Server, error) {
@@ -44,6 +46,7 @@ func NewServer(host, port string) (*Server, error) {
 		nodeID:          id,
 		completeAddress: address,
 		connPool:        make(chan *net.TCPConn, 100),
+		memTable:        store.NewMemTable(),
 	}, nil
 }
 
@@ -131,8 +134,10 @@ func (s *Server) handleConnection() {
 
 func (s *Server) handleClientReq(ctx model.ConnContext) {
 	var (
-		_   = ctx.TCPRequest
-		res = ctx.TCPResponse
+		req               = ctx.TCPRequest
+		res               = ctx.TCPResponse
+		err               error
+		retreivedDocument []byte
 	)
 
 	select {
@@ -140,7 +145,25 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 		res.Message = ctx.Ctx.Err().Error()
 		return
 	default:
-		// handle request
+		switch req.StoreRouter {
+		case model.ClientAdd:
+			err = s.memTable.AddDocument(req.Key, req.Value)
+			res.Message = "document succesfully added"
+		case model.ClientFetch:
+			err, retreivedDocument = s.memTable.FetchDocument(req.Key)
+			res.Message = string(retreivedDocument)
+		case model.ClientDelete:
+			err = s.memTable.DeleteDocument(req.Key)
+			res.Message = "document succesfully removed"
+		default:
+			res.Message = "invalid router type"
+			return
+		}
+
+		if err != nil {
+			res.Message = err.Error()
+			return
+		}
 	}
 }
 

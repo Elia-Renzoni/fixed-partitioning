@@ -11,10 +11,15 @@ const (
 	JoinReq        = "join"
 	ReplicationReq = "replication"
 	ShardingReq    = "sharding"
+
+	ClientAdd    = "client-add"
+	ClientFetch  = "client-fetch"
+	ClientDelete = "client-delete"
 )
 
 type TCPRequest struct {
 	RequestType string   `json:"type"`
+	StoreRouter string   `json:"route,omitempty"`
 	Key         []byte   `json:"key,omitempty"`
 	Value       []byte   `json:"value,omitempty"`
 	NodeAddress net.Addr `json:"addr,omitempty"`
