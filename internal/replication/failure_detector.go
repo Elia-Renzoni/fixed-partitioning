@@ -29,8 +29,8 @@ func (d *detector) StartDetector() {
 		for range tkr.C {
 			for _, node := range d.members.GetAllNodes() {
 				// send message
-				response := send(node, d.generateMessage())
-				if response != nil {
+				response := Send(node, d.generateMessage())
+				if response != nil && d.isPong(response) {
 					continue
 				}
 
@@ -50,7 +50,14 @@ func (d *detector) generateMessage() []byte {
 	return b
 }
 
-// TODO
 func (d *detector) isPong(response []byte) bool {
-	return false
+	var res model.TCPResponse
+	const PONG string = "pong"
+
+	err := json.Unmarshal(response, &res)
+	if err != nil {
+		return false
+	}
+
+	return res.Message == PONG
 }
