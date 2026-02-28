@@ -10,6 +10,8 @@ import (
 	"github.com/fixed-partitioning/internal/replication"
 )
 
+type serverFunc func(addr string)
+
 var server = func(addr string) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
