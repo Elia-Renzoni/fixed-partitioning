@@ -2,6 +2,8 @@ package sharding
 
 import (
 	"fmt"
+	"hash"
+	"hash/fnv"
 
 	"github.com/fixed-partitioning/internal/replication"
 )
@@ -11,6 +13,7 @@ type PartitionTable struct {
 	clusterLen int
 	cluster    *replication.Cluster
 	pTable     map[int][]string
+	hasher     hash.Hash64
 }
 
 func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable {
@@ -18,6 +21,7 @@ func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable 
 		hashSlots: slots,
 		pTable:    make(map[int][]string),
 		cluster:   cluster,
+		hasher:    fnv.New64(),
 	}
 }
 
@@ -34,4 +38,21 @@ func (p *PartitionTable) AssignPartitions() []error {
 		}
 	}
 	return errs
+}
+
+func (p *PartitionTable) PullAssinedNodes(partitionId int) []string {
+	nodes, ok := p.pTable[partitionId]
+	if ok {
+		return nil
+	}
+	return nodes
+}
+
+func (p *PartitionTable) GenerateKeyHash(key []byte) int {
+	p.hasher.Write(key)
+	return int(p.hasher.Sum64())
+}
+
+func (p *PartitionTable) GetPartitionIDFrom(hash int) int {
+	return p.hashSlots % hash
 }
