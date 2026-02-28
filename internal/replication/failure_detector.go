@@ -11,6 +11,7 @@ type detector struct {
 	scheduleTime  time.Duration
 	members       *Cluster
 	failedMembers []string
+	tkr           *time.Ticker
 }
 
 func NewDetector(scheduler int, cluster *Cluster) *detector {
@@ -23,10 +24,10 @@ func NewDetector(scheduler int, cluster *Cluster) *detector {
 
 func (d *detector) StartDetector() {
 	go func() {
-		tkr := time.NewTicker(d.scheduleTime)
-		defer tkr.Stop()
+		d.tkr = time.NewTicker(d.scheduleTime)
+		defer d.tkr.Stop()
 
-		for range tkr.C {
+		for range d.tkr.C {
 			for _, node := range d.members.GetAllNodes() {
 				// send message
 				response := Send(node, d.generateMessage())
