@@ -1,25 +1,28 @@
 package replication
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
-type Replicator struct {
-	cluster *Cluster
-}
+func BroadcastMessage(message []byte, nodes []string) int32 {
+	var (
+		wg         = &sync.WaitGroup{}
+		ackCounter atomic.Int32
+	)
 
-func NewReplicator(cluster *Cluster) *Replicator {
-	return &Replicator{
-		cluster: cluster,
-	}
-}
-
-func (r *Replicator) BroadcastMessage(message []byte) {
-	wg := &sync.WaitGroup{}
-	for _, node := range r.cluster.GetAllNodes() {
+	for _, node := range nodes {
 		wg.Go(func() {
-			// TODO-> handle return buffer for more reliability
-			Send(node, message)
+			response := Send(node, message)
+			if response == nil {
+				return
+			}
+
+			ackCounter.Add(1)
 		})
 	}
 
 	wg.Wait()
+
+	return ackCounter.Load()
 }
