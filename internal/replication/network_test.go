@@ -52,14 +52,15 @@ var server = func(addr string) {
 }
 
 func TestSend(t *testing.T) {
-	go server("127.0.0.1:7676")
+	const address = "127.0.0.1:7676"
+	go server(address)
 
 	time.Sleep(2 * time.Second)
 
 	req := &model.TCPRequest{}
 	req.RequestType = "test"
 	data, _ := json.Marshal(req)
-	buf := replication.Send("127.0.0.1:7676", data)
+	buf := replication.Send(address, data)
 
 	res := &model.TCPResponse{}
 	json.Unmarshal(buf[:], res)
