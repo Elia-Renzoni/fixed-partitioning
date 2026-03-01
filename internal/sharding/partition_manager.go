@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/fnv"
+	"slices"
 
 	"github.com/fixed-partitioning/internal/replication"
 )
@@ -25,6 +26,7 @@ func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable 
 	}
 }
 
+// only the coordinator can call this method
 func (p *PartitionTable) AssignPartitions() []error {
 	var errs []error = make([]error, 0)
 
@@ -55,4 +57,20 @@ func (p *PartitionTable) GenerateKeyHash(key []byte) int {
 
 func (p *PartitionTable) GetPartitionIDFrom(hash int) int {
 	return p.hashSlots % hash
+}
+
+func (p *PartitionTable) MergePartitions(table map[int][]string) {
+	// in case of the first ever request
+	if len(p.pTable) == 0 {
+		p.pTable = table
+		return
+	}
+
+	for partitionId, assignedNodes := range p.pTable {
+		nodes, ok := table[partitionId]
+		// in case of a new entry or update
+		if !ok || slices.Equal(nodes, assignedNodes) {
+			p.pTable[partitionId] = nodes
+		}
+	}
 }
