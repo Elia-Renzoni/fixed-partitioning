@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fixed-partitioning/internal/model"
+	"github.com/fixed-partitioning/internal/replication"
 	"github.com/fixed-partitioning/internal/store"
 	"github.com/google/uuid"
 )
@@ -23,9 +24,10 @@ type Server struct {
 	connPool        chan *net.TCPConn
 	poolCapacity    atomic.Int64
 	memTable        store.MemTable
+	cluster         *replication.Cluster
 }
 
-func NewServer(host, port string) (*Server, error) {
+func NewServer(host, port string, members *replication.Cluster) (*Server, error) {
 	n, _ := strconv.Atoi(port)
 	if host == "" && n < 0 || n > 65_535 {
 		return nil, errors.New("invalid network params")
@@ -47,6 +49,7 @@ func NewServer(host, port string) (*Server, error) {
 		completeAddress: address,
 		connPool:        make(chan *net.TCPConn, 100),
 		memTable:        store.NewMemTable(),
+		cluster:         members,
 	}, nil
 }
 
@@ -169,7 +172,7 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 
 func (s *Server) handleJoinReq(ctx model.ConnContext) {
 	var (
-		_   = ctx.TCPRequest
+		req = ctx.TCPRequest
 		res = ctx.TCPResponse
 	)
 
@@ -178,7 +181,16 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 		res.Message = ctx.Ctx.Err().Error()
 		return
 	default:
-		// handle request
+		if req.NodeAddress.String() == "" {
+			res.Message = "invalid address"
+		} else {
+			if err := s.cluster.AddNode(req.NodeAddress.String()); err != nil {
+				res.Message = err.Error()
+				return
+			}
+
+			res.Message = "node succesfully joined"
+		}
 	}
 }
 
