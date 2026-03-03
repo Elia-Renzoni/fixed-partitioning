@@ -1,10 +1,12 @@
 package sharding
 
 import (
+	"errors"
 	"fmt"
 	"hash"
 	"hash/fnv"
 	"slices"
+	"sync"
 
 	"github.com/fixed-partitioning/internal/replication"
 )
@@ -16,7 +18,10 @@ type PartitionTable struct {
 	pTable       map[int][]string
 	hasher       hash.Hash64
 	averageSlots int
+	mutex        sync.RWMutex
 }
+
+const minClusterLen int = 4
 
 func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable {
 	return &PartitionTable{
@@ -29,6 +34,13 @@ func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable 
 
 // only the coordinator can call this method
 func (p *PartitionTable) AssignPartitions() []error {
+	if p.cluster.Len() < minClusterLen {
+		return []error{errors.New("unable to assign partition due to lack of nodes")}
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	var errs []error = make([]error, 0)
 
 	for slot := range p.hashSlots {
@@ -46,21 +58,11 @@ func (p *PartitionTable) AssignPartitions() []error {
 	return errs
 }
 
-func (p *PartitionTable) PullAssinedNodes(partitionId int) []string {
-	nodes, ok := p.pTable[partitionId]
-	if ok {
-		return nil
-	}
-	return nodes
-}
+func (p *PartitionTable) ReadPartitionTable() map[int][]string {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 
-func (p *PartitionTable) GenerateKeyHash(key []byte) int {
-	p.hasher.Write(key)
-	return int(p.hasher.Sum64())
-}
-
-func (p *PartitionTable) GetPartitionIDFrom(hash int) int {
-	return p.hashSlots % hash
+	return p.pTable
 }
 
 type delta struct {
@@ -79,6 +81,9 @@ type delta struct {
 }
 
 func (p *PartitionTable) BalancePartitions() {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
 	var unbalancedNodes = make([]delta, 0)
 
 	// search the unbalanced nodes
@@ -108,6 +113,9 @@ func (p *PartitionTable) BalancePartitions() {
 }
 
 func (p *PartitionTable) MergePartitions(table map[int][]string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	// in case of the first ever request
 	if len(p.pTable) == 0 {
 		p.pTable = table
