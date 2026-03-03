@@ -190,6 +190,17 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 			}
 
 			res.Message = "node succesfully joined"
+
+			replicationReq := model.TCPRequest{
+				RequestType: "replication",
+				StoreRouter: "cluster",
+				NodeAddress: req.NodeAddress,
+			}
+
+			data, _ := json.Marshal(replicationReq)
+
+			// TODO-> handle return value
+			replication.BroadcastMessage(data, s.cluster.GetAllNodes())
 		}
 	}
 }
