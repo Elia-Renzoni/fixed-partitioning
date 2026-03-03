@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -188,7 +189,6 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 				res.Message = err.Error()
 				return
 			}
-
 			res.Message = "node succesfully joined"
 
 			replicationReq := model.TCPRequest{
@@ -198,9 +198,11 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 			}
 
 			data, _ := json.Marshal(replicationReq)
-
-			// TODO-> handle return value
-			replication.BroadcastMessage(data, s.cluster.GetAllNodes())
+			nodes := s.cluster.GetAllNodes()
+			acks := replication.BroadcastMessage(data, nodes)
+			if int(acks) < len(nodes) {
+				res.Warning = fmt.Sprintf("replication warning, message has arrived only to %d replicas", int(acks))
+			}
 		}
 	}
 }
