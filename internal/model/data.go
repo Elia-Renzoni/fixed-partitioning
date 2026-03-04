@@ -27,6 +27,7 @@ type TCPRequest struct {
 
 type TCPResponse struct {
 	Message string `json:"text"`
+	Warning string `json:"warn"`
 }
 
 type ConnContext struct {
