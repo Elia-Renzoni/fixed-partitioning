@@ -2,6 +2,7 @@ package sharding_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/fixed-partitioning/internal/replication"
@@ -36,5 +37,17 @@ func TestPartitionTable(t *testing.T) {
 
 	for p, nodes := range ptable.ReadPartitionTable() {
 		t.Logf("partition: %d - nodes: %s", p, nodes)
+	}
+
+	newSlots := map[int][]string{
+		500: []string{"127.0.0.1:6060"},
+	}
+
+	ptable.MergePartitions(newSlots)
+
+	table := ptable.ReadPartitionTable()
+	nodes := table[500]
+	if !slices.Contains(nodes, "127.0.0.1:6060") {
+		t.Fatalf("got: %s", nodes)
 	}
 }

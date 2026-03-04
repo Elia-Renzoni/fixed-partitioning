@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"sync"
 
@@ -129,11 +130,5 @@ func (p *PartitionTable) MergePartitions(table map[int][]string) {
 		return
 	}
 
-	for partitionId, assignedNodes := range p.pTable {
-		nodes, ok := table[partitionId]
-		// in case of a new entry or update
-		if !ok || slices.Equal(nodes, assignedNodes) {
-			p.pTable[partitionId] = nodes
-		}
-	}
+	maps.Copy(p.pTable, table)
 }
