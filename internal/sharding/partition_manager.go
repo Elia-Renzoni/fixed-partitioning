@@ -33,29 +33,36 @@ func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable 
 }
 
 // only the coordinator can call this method
-func (p *PartitionTable) AssignPartitions() []error {
+func (p *PartitionTable) AssignPartitions() error {
 	if p.cluster.Len() < minClusterLen {
-		return []error{errors.New("unable to assign partition due to lack of nodes")}
+		return errors.New("unable to assign partition due to lack of nodes")
 	}
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	var errs []error = make([]error, 0)
+	var errs = p.hashSlots
 
 	for slot := range p.hashSlots {
 		partitionIndex := slot % p.cluster.Len()
 		attachedNode := p.cluster.GetNodeFromLocation(partitionIndex)
-		if attachedNode != "" {
+		if attachedNode != "" && !p.nodeAlreadyPresent(p.pTable[partitionIndex], attachedNode) {
 			p.pTable[partitionIndex] = append(p.pTable[partitionIndex], attachedNode)
-		} else {
-			errs = append(errs, fmt.Errorf("failed matching for %d partiotion", slot))
 		}
+		errs--
 	}
 
 	// compute average slots
 	p.averageSlots = p.hashSlots / p.cluster.Len()
-	return errs
+
+	if errs > 0 {
+		return fmt.Errorf("assigned only %d partitions", errs)
+	}
+	return nil
+}
+
+func (p *PartitionTable) nodeAlreadyPresent(nodes []string, targetNode string) bool {
+	return slices.Contains(nodes, targetNode)
 }
 
 func (p *PartitionTable) ReadPartitionTable() map[int][]string {
