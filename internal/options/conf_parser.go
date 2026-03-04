@@ -2,6 +2,7 @@ package options
 
 import (
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,7 +24,14 @@ func loadFileContent() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err = os.OpenFile("conf.yaml", os.O_RDONLY, 0644)
+
+	var match string
+	match, err = searchConfFile()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err = os.OpenFile(match, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -35,4 +43,12 @@ func loadFileContent() ([]byte, error) {
 	}
 
 	return buffer, nil
+}
+
+func searchConfFile() (string, error) {
+	matches, err := filepath.Glob(".yaml")
+	if err != nil {
+		return "", err
+	}
+	return matches[0], nil
 }
