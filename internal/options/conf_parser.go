@@ -20,7 +20,7 @@ func ParseConf() (ProjectOptions, error) {
 
 func loadFileContent() ([]byte, error) {
 	var file *os.File
-	err := os.Chdir("etc")
+	err := os.Chdir("etc/")
 	if err != nil {
 		return nil, err
 	}
