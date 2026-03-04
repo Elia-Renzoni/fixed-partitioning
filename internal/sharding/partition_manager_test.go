@@ -17,8 +17,15 @@ func TestPartitionTable(t *testing.T) {
 		t.Fatal()
 	}
 
-	for i := range 7 {
-		address := fmt.Sprintf("127.0.0.1:606%d", i)
+	dec := 6
+	helper := 0
+	for i := range 30 {
+		helper += 1
+		if i == 10 || i == 20 {
+			dec += 1
+			helper = 0
+		}
+		address := fmt.Sprintf("127.0.0.1:60%d%d", dec, helper)
 		members.AddNode(address)
 	}
 	ptable = sharding.NewPartitionTable(500, members)
