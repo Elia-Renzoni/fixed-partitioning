@@ -1,6 +1,7 @@
 package options
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,41 +15,44 @@ func ParseConf() (ProjectOptions, error) {
 	}
 
 	opt := ProjectOptions{}
-	err = yaml.Unmarshal(content, opt)
+	err = yaml.Unmarshal(content, &opt)
 	return opt, err
 }
 
 func loadFileContent() ([]byte, error) {
-	var file *os.File
-	err := os.Chdir("etc/")
-	if err != nil {
-		return nil, err
+	searchDirs := []string{
+		"etc",
+		filepath.Join(os.TempDir(), "etc"),
 	}
 
-	var match string
-	match, err = searchConfFile()
-	if err != nil {
-		return nil, err
+	for _, dir := range searchDirs {
+		matches, err := searchConfFiles(dir)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) == 0 {
+			continue
+		}
+
+		content, err := os.ReadFile(matches[0])
+		if err != nil {
+			return nil, err
+		}
+		return content, nil
 	}
 
-	file, err = os.OpenFile(match, os.O_RDONLY, 0644)
-	if err != nil {
-		return nil, err
-	}
-
-	buffer := make([]byte, 5048)
-	_, err = file.Read(buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	return buffer, nil
+	return nil, fmt.Errorf("no configuration file found in ./etc or %s", filepath.Join(os.TempDir(), "etc"))
 }
 
-func searchConfFile() (string, error) {
-	matches, err := filepath.Glob(".yaml")
-	if err != nil {
-		return "", err
+func searchConfFiles(dir string) ([]string, error) {
+	patterns := []string{"*.yml", "*.yaml", "*.yml*", "*.yaml*"}
+	var matches []string
+	for _, pattern := range patterns {
+		found, err := filepath.Glob(filepath.Join(dir, pattern))
+		if err != nil {
+			return nil, err
+		}
+		matches = append(matches, found...)
 	}
-	return matches[0], nil
+	return matches, nil
 }
