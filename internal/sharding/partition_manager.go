@@ -6,6 +6,7 @@ import (
 	"hash"
 	"hash/fnv"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"sync"
 
@@ -13,23 +14,25 @@ import (
 )
 
 type PartitionTable struct {
-	hashSlots    int
-	clusterLen   int
-	cluster      *replication.Cluster
-	pTable       map[int][]string
-	hasher       hash.Hash64
-	averageSlots int
-	mutex        sync.RWMutex
+	hashSlots         int
+	clusterLen        int
+	cluster           *replication.Cluster
+	pTable            map[int][]string
+	hasher            hash.Hash64
+	averageSlots      int
+	mutex             sync.RWMutex
+	replicationFactor int
 }
 
 const minClusterLen int = 4
 
-func NewPartitionTable(slots int, cluster *replication.Cluster) *PartitionTable {
+func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTable {
 	return &PartitionTable{
-		hashSlots: slots,
-		pTable:    make(map[int][]string),
-		cluster:   cluster,
-		hasher:    fnv.New64(),
+		hashSlots:         slots,
+		pTable:            make(map[int][]string),
+		cluster:           cluster,
+		hasher:            fnv.New64(),
+		replicationFactor: rp,
 	}
 }
 
@@ -49,6 +52,10 @@ func (p *PartitionTable) AssignPartitions() error {
 		attachedNode := p.cluster.GetNodeFromLocation(partitionIndex)
 		if attachedNode != "" && !p.nodeAlreadyPresent(p.pTable[partitionIndex], attachedNode) {
 			p.pTable[partitionIndex] = append(p.pTable[partitionIndex], attachedNode)
+			rfNodes := p.completeNodesWithRF(attachedNode)
+			if rfNodes != nil {
+				copy(p.pTable[partitionIndex], rfNodes)
+			}
 		}
 		errs--
 	}
@@ -64,6 +71,32 @@ func (p *PartitionTable) AssignPartitions() error {
 
 func (p *PartitionTable) nodeAlreadyPresent(nodes []string, targetNode string) bool {
 	return slices.Contains(nodes, targetNode)
+}
+
+func (p *PartitionTable) completeNodesWithRF(attachedNode string) []string {
+	if p.replicationFactor > 0 {
+		var (
+			nodes         = make([]string, 0)
+			exitStatus    = false
+			sprintCounter int
+		)
+
+		for !exitStatus {
+			nodeID := rand.IntN(p.cluster.Len())
+			selectedNode := p.cluster.GetNodeFromLocation(nodeID)
+			if selectedNode != attachedNode ||
+				!slices.Contains(nodes, selectedNode) {
+				nodes = append(nodes, selectedNode)
+				sprintCounter += 1
+			}
+
+			if sprintCounter >= p.replicationFactor {
+				exitStatus = true
+			}
+		}
+		return nodes
+	}
+	return nil
 }
 
 func (p *PartitionTable) ReadPartitionTable() map[int][]string {

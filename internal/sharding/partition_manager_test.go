@@ -13,7 +13,7 @@ func TestPartitionTable(t *testing.T) {
 	members := replication.NewCluster()
 
 	// forcing error generation
-	ptable := sharding.NewPartitionTable(500, members)
+	ptable := sharding.NewPartitionTable(500, 0, members)
 	if err := ptable.AssignPartitions(); err == nil {
 		t.Fatal()
 	}
@@ -29,7 +29,7 @@ func TestPartitionTable(t *testing.T) {
 		address := fmt.Sprintf("127.0.0.1:60%d%d", dec, helper)
 		members.AddNode(address)
 	}
-	ptable = sharding.NewPartitionTable(500, members)
+	ptable = sharding.NewPartitionTable(500, 3, members)
 	err := ptable.AssignPartitions()
 	if err != nil {
 		t.Fatal(err)
