@@ -77,21 +77,20 @@ func (p *PartitionTable) completeNodesWithRF(attachedNode string) []string {
 	if p.replicationFactor > 0 {
 		var (
 			nodes         = make([]string, 0)
-			exitStatus    = false
 			sprintCounter int
 		)
 
-		for !exitStatus {
+		for {
 			nodeID := rand.IntN(p.cluster.Len())
 			selectedNode := p.cluster.GetNodeFromLocation(nodeID)
-			if selectedNode != attachedNode ||
-				!slices.Contains(nodes, selectedNode) {
-				nodes = append(nodes, selectedNode)
-				sprintCounter += 1
+			if selectedNode == attachedNode || slices.Contains(nodes, selectedNode) {
+				continue
 			}
 
+			sprintCounter += 1
+			nodes = append(nodes, selectedNode)
 			if sprintCounter >= p.replicationFactor {
-				exitStatus = true
+				break
 			}
 		}
 		return nodes
