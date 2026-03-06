@@ -105,6 +105,7 @@ func (p *PartitionTable) ReadPartitionTable() map[int][]string {
 	return p.pTable
 }
 
+/*
 type delta struct {
 	nodeAddress string
 
@@ -150,7 +151,7 @@ func (p *PartitionTable) BalancePartitions() {
 	}
 
 	// TODO-> implements the balance logic
-}
+}*/
 
 func (p *PartitionTable) MergePartitions(table map[int][]string) {
 	p.mutex.Lock()
