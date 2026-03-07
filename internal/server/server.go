@@ -13,6 +13,7 @@ import (
 
 	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/replication"
+	"github.com/fixed-partitioning/internal/sharding"
 	"github.com/fixed-partitioning/internal/store"
 	"github.com/google/uuid"
 )
@@ -26,9 +27,10 @@ type Server struct {
 	poolCapacity    atomic.Int64
 	memTable        store.MemTable
 	cluster         *replication.Cluster
+	partitions      *sharding.PartitionTable
 }
 
-func NewServer(host, port string, members *replication.Cluster) (*Server, error) {
+func NewServer(host, port string, members *replication.Cluster, pTable *sharding.PartitionTable) (*Server, error) {
 	n, _ := strconv.Atoi(port)
 	if host == "" && n < 0 || n > 65_535 {
 		return nil, errors.New("invalid network params")
@@ -51,6 +53,7 @@ func NewServer(host, port string, members *replication.Cluster) (*Server, error)
 		connPool:        make(chan *net.TCPConn, 100),
 		memTable:        store.NewMemTable(),
 		cluster:         members,
+		partitions:      pTable,
 	}, nil
 }
 
@@ -147,7 +150,6 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 	select {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
-		return
 	default:
 		switch req.StoreRouter {
 		case model.ClientAdd:
@@ -168,6 +170,26 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 			res.Message = err.Error()
 			return
 		}
+
+		if req.RequestType == "replication" {
+			return
+		}
+
+		partition := s.partitions.GetPartition(req.Key)
+		nodes := s.partitions.FindNodes(partition)
+
+		newRequest := &model.TCPRequest{
+			RequestType: "replication",
+			StoreRouter: req.StoreRouter,
+			Key:         req.Key,
+			Value:       req.Value,
+		}
+
+		data, _ := json.Marshal(newRequest)
+		acks := replication.BroadcastMessage(data, nodes)
+		if int(acks) < len(nodes) {
+			res.Warning = fmt.Sprintf("replication warning, message has arrived only to %d replicas", int(acks))
+		}
 	}
 }
 
@@ -180,7 +202,6 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 	select {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
-		return
 	default:
 		if req.NodeAddress.String() == "" {
 			res.Message = "invalid address"
@@ -190,6 +211,10 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 				return
 			}
 			res.Message = "node succesfully joined"
+
+			if req.RequestType == "replication" {
+				return
+			}
 
 			replicationReq := model.TCPRequest{
 				RequestType: "replication",
@@ -209,30 +234,46 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 
 func (s *Server) handleReplicationReq(ctx model.ConnContext) {
 	var (
-		_   = ctx.TCPRequest
+		req = ctx.TCPRequest
 		res = ctx.TCPResponse
 	)
 
 	select {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
-		return
 	default:
 		// handle request
+		switch req.StoreRouter {
+		case model.ClientAdd, model.ClientDelete:
+			s.handleClientReq(ctx)
+		case model.JoinReq:
+			s.handleJoinReq(ctx)
+		case model.ShardingReq:
+			s.handleShardingReq(ctx)
+		default:
+			res.Message = "invalid store router type"
+		}
 	}
 }
 
 func (s *Server) handleShardingReq(ctx model.ConnContext) {
 	var (
-		_   = ctx.TCPRequest
+		req = ctx.TCPRequest
 		res = ctx.TCPResponse
 	)
 
 	select {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
-		return
 	default:
 		// handle request
+		switch req.StoreRouter {
+		case model.ShardingGet:
+			table := s.partitions.ReadPartitionTable()
+			res.Message = table
+		case model.ShardingSet:
+			s.partitions.MergePartitions(req.PTable)
+			res.Message = "partition table merged succesfully"
+		}
 	}
 }

@@ -165,3 +165,17 @@ func (p *PartitionTable) MergePartitions(table map[int][]string) {
 
 	maps.Copy(p.pTable, table)
 }
+
+func (p *PartitionTable) GetPartition(key []byte) int {
+	p.hasher.Write(key)
+	hash := p.hasher.Sum64()
+	partition := int(hash) % p.hashSlots
+	return partition
+}
+
+func (p *PartitionTable) FindNodes(pId int) []string {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	return p.pTable[pId]
+}
