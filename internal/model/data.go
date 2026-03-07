@@ -15,18 +15,22 @@ const (
 	ClientAdd    = "client-add"
 	ClientFetch  = "client-fetch"
 	ClientDelete = "client-delete"
+
+	ShardingGet = "sh-get"
+	ShardingSet = "sh-set"
 )
 
 type TCPRequest struct {
-	RequestType string   `json:"type"`
-	StoreRouter string   `json:"route,omitempty"`
-	Key         []byte   `json:"key,omitempty"`
-	Value       []byte   `json:"value,omitempty"`
-	NodeAddress net.Addr `json:"addr,omitempty"`
+	RequestType string           `json:"type"`
+	StoreRouter string           `json:"route,omitempty"`
+	Key         []byte           `json:"key,omitempty"`
+	Value       []byte           `json:"value,omitempty"`
+	NodeAddress net.Addr         `json:"addr,omitempty"`
+	PTable      map[int][]string `json:"sharding,omitempty"`
 }
 
 type TCPResponse struct {
-	Message string `json:"text"`
+	Message any    `json:"res"`
 	Warning string `json:"warn"`
 }
 
