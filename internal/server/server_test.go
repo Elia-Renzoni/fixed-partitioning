@@ -70,5 +70,6 @@ func prepareJoinRequest(addr string) ([]byte, error) {
 }
 
 // TODO
-func makeTCPRequest(data []byte) {
+func makeTCPRequest(data []byte, dataLen int) model.TCPResponse {
+	return
 }
