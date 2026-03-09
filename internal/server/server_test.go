@@ -1,9 +1,12 @@
 package server_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"testing"
 
+	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/replication"
 	"github.com/fixed-partitioning/internal/server"
 	"github.com/fixed-partitioning/internal/sharding"
@@ -45,4 +48,27 @@ func createPartitionTable(c *replication.Cluster) (*sharding.PartitionTable, err
 	pt := sharding.NewPartitionTable(200, 3, c)
 	err := pt.AssignPartitions()
 	return pt, err
+}
+
+func prepareClientRequest(storeRouter string) ([]byte, error) {
+	req := model.TCPRequest{}
+	req.Key = []byte("foo")
+	if storeRouter == model.ClientAdd {
+		req.Value = []byte("bar")
+	}
+	req.RequestType = "client"
+	req.StoreRouter = storeRouter
+
+	return json.Marshal(req)
+}
+
+func prepareJoinRequest(addr string) ([]byte, error) {
+	req := model.TCPRequest{}
+	req.RequestType = "join"
+	req.NodeAddress = net.Addr(addr)
+	return json.Marshal(req)
+}
+
+// TODO
+func makeTCPRequest(data []byte) {
 }
