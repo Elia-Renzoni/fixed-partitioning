@@ -105,54 +105,6 @@ func (p *PartitionTable) ReadPartitionTable() map[int][]string {
 	return p.pTable
 }
 
-/*
-type delta struct {
-	nodeAddress string
-
-	// diff contains the effective delta between
-	// the ideal partitions per node and the real
-	// partition per node.
-	// example: Ideal -> 10 per node
-	//          Real ->  15 per node
-	//          Diff ->  -5
-	// example: Ideal -> 10 per node
-	//          Real -> 3 per node
-	//          Diff -> 7
-	diff int
-}
-
-func (p *PartitionTable) BalancePartitions() {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
-
-	var unbalancedNodes = make([]delta, 0)
-
-	// search the unbalanced nodes
-	for _, pNodes := range p.pTable {
-		for _, node := range pNodes {
-			counter := 0
-			for _, assignedNodes := range p.pTable {
-				if slices.Contains(assignedNodes, node) {
-					counter += 1
-				}
-			}
-
-			if (counter - 1) != p.averageSlots {
-				unbalancedNodes = append(unbalancedNodes, delta{
-					nodeAddress: node,
-					diff:        p.averageSlots - counter,
-				})
-			}
-		}
-	}
-
-	if !(len(unbalancedNodes) > 0) {
-		return
-	}
-
-	// TODO-> implements the balance logic
-}*/
-
 func (p *PartitionTable) MergePartitions(table map[int][]string) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
