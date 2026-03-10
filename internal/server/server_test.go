@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +31,36 @@ func TestServer(t *testing.T) {
 	}
 
 	go s.DoListen()
-	// TODO-> complete the test
+
+	time.Sleep(2 * time.Second)
+
+	// test join request
+	reqs := make([][]byte, 0)
+	for _, node := range members.GetAllNodes() {
+		reqData, err := prepareJoinRequest(node)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reqs = append(reqs, reqData)
+	}
+
+	wg := &sync.WaitGroup{}
+	for _, dataToSend := range reqs {
+		wg.Go(func() {
+			res, err := makeTCPRequest(dataToSend, "127.0.0.1:9090")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if res.Message == "" {
+				t.Fatal("invalid response message when performing node JOIN")
+			} else {
+				t.Log(res.Message)
+			}
+		})
+	}
+
+	wg.Wait()
 }
 
 func createCluster() (*replication.Cluster, error) {
@@ -70,7 +100,7 @@ func prepareJoinRequest(addr string) ([]byte, error) {
 	return json.Marshal(req)
 }
 
-func makeTCPRequest(data []byte, dataLen int, address string) (model.TCPResponse, error) {
+func makeTCPRequest(data []byte, address string) (model.TCPResponse, error) {
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {
 		return model.TCPResponse{}, err

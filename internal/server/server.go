@@ -99,6 +99,7 @@ func (s *Server) handleConnection() {
 			bytesRed int
 			readErr  error
 		)
+
 		for {
 			bytesRed, readErr = conn.Read(buffer)
 			if readErr != nil {
