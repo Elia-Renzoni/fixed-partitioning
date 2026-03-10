@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/replication"
@@ -69,7 +70,22 @@ func prepareJoinRequest(addr string) ([]byte, error) {
 	return json.Marshal(req)
 }
 
-// TODO
-func makeTCPRequest(data []byte, dataLen int) model.TCPResponse {
-	return
+func makeTCPRequest(data []byte, dataLen int, address string) (model.TCPResponse, error) {
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		return model.TCPResponse{}, err
+	}
+	defer conn.Close()
+
+	conn.Write(data)
+
+	buf := make([]byte, 2048)
+	n, _ := conn.Read(buf)
+	res := &model.TCPResponse{}
+	err = json.Unmarshal(buf[:n], res)
+	if err != nil {
+		return model.TCPResponse{}, err
+	}
+
+	return *res, nil
 }
