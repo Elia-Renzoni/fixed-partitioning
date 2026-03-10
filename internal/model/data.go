@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"net"
 	"time"
 )
 
@@ -25,7 +24,7 @@ type TCPRequest struct {
 	StoreRouter string           `json:"route,omitempty"`
 	Key         []byte           `json:"key,omitempty"`
 	Value       []byte           `json:"value,omitempty"`
-	NodeAddress net.Addr         `json:"addr,omitempty"`
+	NodeAddress string           `json:"addr,omitempty"`
 	PTable      map[int][]string `json:"sharding,omitempty"`
 }
 

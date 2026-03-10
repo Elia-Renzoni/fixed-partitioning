@@ -207,10 +207,10 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
 	default:
-		if req.NodeAddress.String() == "" {
+		if req.NodeAddress == "" {
 			res.Message = "invalid address"
 		} else {
-			if err := s.cluster.AddNode(req.NodeAddress.String()); err != nil {
+			if err := s.cluster.AddNode(req.NodeAddress); err != nil {
 				res.Message = err.Error()
 				return
 			}
