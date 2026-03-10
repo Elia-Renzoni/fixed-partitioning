@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,24 +95,29 @@ func (s *Server) handleConnection() {
 	}()
 
 	for conn := range s.connPool {
-		buffer := make([]byte, 2048)
 		var (
 			bytesRed int
 			readErr  error
 		)
 
+		bufferPool := bytes.Buffer{}
+		buffer := make([]byte, 2048)
 		for {
 			bytesRed, readErr = conn.Read(buffer)
+			if bytesRed > 0 {
+				bufferPool.Write(buffer[:bytesRed])
+			}
+
 			if readErr != nil {
-				if readErr != io.EOF {
-					log.Println("[ERR]: something went wrong while reading data")
+				if readErr == io.EOF {
+					break
 				}
-				break
+				return
 			}
 		}
 
 		req := &model.TCPRequest{}
-		data := buffer[:bytesRed]
+		data := bufferPool.Bytes()
 		err := json.Unmarshal(data, req)
 		if err != nil {
 			log.Println("[ERR]: something went wrong while unmarhsaling data")
