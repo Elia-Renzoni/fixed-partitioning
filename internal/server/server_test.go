@@ -66,7 +66,7 @@ func prepareClientRequest(storeRouter string) ([]byte, error) {
 func prepareJoinRequest(addr string) ([]byte, error) {
 	req := model.TCPRequest{}
 	req.RequestType = "join"
-	req.NodeAddress = net.Addr(addr)
+	req.NodeAddress = addr
 	return json.Marshal(req)
 }
 
