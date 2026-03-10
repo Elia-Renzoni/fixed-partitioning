@@ -175,6 +175,10 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 			return
 		}
 
+		if s.cluster.Len() == 0 {
+			return
+		}
+
 		partition := s.partitions.GetPartition(req.Key)
 		nodes := s.partitions.FindNodes(partition)
 
@@ -213,6 +217,10 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 			res.Message = "node succesfully joined"
 
 			if req.RequestType == "replication" {
+				return
+			}
+
+			if s.cluster.Len() == 0 {
 				return
 			}
 
