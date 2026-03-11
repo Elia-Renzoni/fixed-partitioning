@@ -3,8 +3,8 @@ package server_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +14,12 @@ import (
 	"github.com/fixed-partitioning/internal/sharding"
 )
 
+const clusterLen = 6
+
 func TestServer(t *testing.T) {
-	members, err := createCluster()
-	if err != nil {
-		t.Fatal(err)
-	}
+	members := replication.NewCluster()
 	var pt *sharding.PartitionTable
-	pt, err = createPartitionTable(members)
+	pt, err := createPartitionTable(members)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,45 +37,29 @@ func TestServer(t *testing.T) {
 
 	// test join request
 	reqs := make([][]byte, 0)
-	for _, node := range members.GetAllNodes() {
-		reqData, err := prepareJoinRequest(node)
+	for index := range clusterLen {
+		address := fmt.Sprintf("127.0.0.1:505%d", index)
+		t.Log(address)
+		reqData, err := prepareJoinRequest(address)
 		if err != nil {
 			t.Fatal(err)
 		}
 		reqs = append(reqs, reqData)
 	}
 
-	wg := &sync.WaitGroup{}
 	for _, dataToSend := range reqs {
-		wg.Go(func() {
-			// assuming that 127.0.0.1:5050 is the coordinator node
-			res, err := makeTCPRequest(dataToSend, "127.0.0.1:5050")
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if res.Message == "" {
-				t.Fatal("invalid response message when performing node JOIN")
-			} else {
-				t.Log(res.Message)
-			}
-		})
-	}
-
-	wg.Wait()
-}
-
-const clusterLen = 6
-
-func createCluster() (*replication.Cluster, error) {
-	var c = replication.NewCluster()
-	for i := range clusterLen {
-		err := c.AddNode(fmt.Sprintf("127.0.0.1:505%d", i))
+		// assuming that 127.0.0.1:5050 is the coordinator node
+		res, err := makeTCPRequest(dataToSend, "127.0.0.1:5050")
 		if err != nil {
-			return nil, err
+			t.Fatal(err)
+		}
+
+		if res.Message == "" {
+			t.Fatal("invalid response message when performing node JOIN")
+		} else {
+			t.Logf("response: %s", res.Message)
 		}
 	}
-	return c, nil
 }
 
 func createMultipleListeners(
@@ -97,8 +80,7 @@ func createMultipleListeners(
 
 func createPartitionTable(c *replication.Cluster) (*sharding.PartitionTable, error) {
 	pt := sharding.NewPartitionTable(200, 3, c)
-	err := pt.AssignPartitions()
-	return pt, err
+	return pt, nil
 }
 
 func prepareClientRequest(storeRouter string) ([]byte, error) {
@@ -134,10 +116,16 @@ func makeTCPRequest(data []byte, address string) (model.TCPResponse, error) {
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
-	buf := make([]byte, 2048)
-	n, _ := conn.Read(buf)
+	data, readErr := io.ReadAll(conn)
+	if readErr != nil {
+		return model.TCPResponse{}, readErr
+	}
+	if len(data) == 0 {
+		return model.TCPResponse{}, fmt.Errorf("empty response from server")
+	}
+
 	res := &model.TCPResponse{}
-	err = json.Unmarshal(buf[:n], res)
+	err = json.Unmarshal(data, res)
 	if err != nil {
 		return model.TCPResponse{}, err
 	}

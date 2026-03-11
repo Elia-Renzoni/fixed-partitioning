@@ -130,6 +130,8 @@ func (s *Server) handleConnection() {
 		}
 
 		serverCtx := model.NewConnContext()
+		// Attach decoded request to context handlers expect.
+		serverCtx.TCPRequest = req
 		res := serverCtx.TCPResponse
 		switch req.RequestType {
 		case model.ClientReq:
@@ -244,10 +246,8 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 
 			data, _ := json.Marshal(replicationReq)
 			nodes := s.cluster.GetAllNodes()
-			acks := replication.BroadcastMessage(data, nodes)
-			if int(acks) < len(nodes) {
-				res.Warning = fmt.Sprintf("replication warning, message has arrived only to %d replicas", int(acks))
-			}
+			// Replicate asynchronously to avoid blocking client responses.
+			go replication.BroadcastMessage(data, nodes)
 		}
 	}
 }
