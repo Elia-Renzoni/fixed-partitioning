@@ -17,6 +17,13 @@ const (
 
 	ShardingGet = "sh-get"
 	ShardingSet = "sh-set"
+
+	SuccClientAdd = ""
+	ErrClientAdd  = ""
+	SuccClientDel = ""
+	ErrClientDel  = ""
+
+	SuccJoin = ""
 )
 
 type TCPRequest struct {
