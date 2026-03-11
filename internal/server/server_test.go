@@ -60,6 +60,54 @@ func TestServer(t *testing.T) {
 			t.Logf("response: %s", res.Message)
 		}
 	}
+
+	// test client request
+	var data []byte
+	data, err = prepareClientRequest(model.ClientAdd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// send a tcp request to the coordinator
+	var res model.TCPResponse
+	res, err = makeTCPRequest(data, "127.0.0.1:5050")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Message != "document succesfully added" {
+		t.Fatal(res.Message)
+	}
+
+	// send a get request to the coordinator
+	data, err = prepareClientRequest(model.ClientFetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = makeTCPRequest(data, "127.0.0.1:5050")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Message != "bar" {
+		t.Fatal(res.Message)
+	}
+
+	// send a set request to the coordinator
+	data, err = prepareClientRequest(model.ClientDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = makeTCPRequest(data, "127.0.0.1:5050")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Message != "document succesfully removed" {
+		t.Fatal(res.Message)
+	}
 }
 
 func createMultipleListeners(
