@@ -59,6 +59,10 @@ func TestServer(t *testing.T) {
 		} else {
 			t.Logf("response: %s", res.Message)
 		}
+
+		if res.Warning != "" {
+			t.Fatal(res.Warning)
+		}
 	}
 
 	// test client request
@@ -79,6 +83,10 @@ func TestServer(t *testing.T) {
 		t.Fatal(res.Message)
 	}
 
+	if res.Warning != "" {
+		t.Fatal(res.Warning)
+	}
+
 	// send a get request to the coordinator
 	data, err = prepareClientRequest(model.ClientFetch)
 	if err != nil {
@@ -94,6 +102,10 @@ func TestServer(t *testing.T) {
 		t.Fatal(res.Message)
 	}
 
+	if res.Warning != "" {
+		t.Fatal(res.Warning)
+	}
+
 	// send a set request to the coordinator
 	data, err = prepareClientRequest(model.ClientDelete)
 	if err != nil {
@@ -107,6 +119,10 @@ func TestServer(t *testing.T) {
 
 	if res.Message != "document succesfully removed" {
 		t.Fatal(res.Message)
+	}
+
+	if res.Warning != "" {
+		t.Fatal(res.Warning)
 	}
 }
 
