@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,23 +95,34 @@ func (s *Server) handleConnection() {
 	}()
 
 	for conn := range s.connPool {
-		buffer := make([]byte, 2048)
 		var (
 			bytesRed int
 			readErr  error
 		)
+
+		bufferPool := bytes.Buffer{}
+		buffer := make([]byte, 2048)
 		for {
 			bytesRed, readErr = conn.Read(buffer)
+			if bytesRed > 0 {
+				bufferPool.Write(buffer[:bytesRed])
+			}
+
 			if readErr != nil {
-				if readErr != io.EOF {
-					log.Println("[ERR]: something went wrong while reading data")
+				if readErr == io.EOF {
+					break
 				}
-				break
+				// If the client doesn't half-close, a read timeout will fire.
+				// Treat it as end-of-request so we can still respond.
+				if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
+					break
+				}
+				return
 			}
 		}
 
 		req := &model.TCPRequest{}
-		data := buffer[:bytesRed]
+		data := bufferPool.Bytes()
 		err := json.Unmarshal(data, req)
 		if err != nil {
 			log.Println("[ERR]: something went wrong while unmarhsaling data")
@@ -118,6 +130,8 @@ func (s *Server) handleConnection() {
 		}
 
 		serverCtx := model.NewConnContext()
+		// Attach decoded request to context handlers expect.
+		serverCtx.TCPRequest = req
 		res := serverCtx.TCPResponse
 		switch req.RequestType {
 		case model.ClientReq:
@@ -232,10 +246,8 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 
 			data, _ := json.Marshal(replicationReq)
 			nodes := s.cluster.GetAllNodes()
-			acks := replication.BroadcastMessage(data, nodes)
-			if int(acks) < len(nodes) {
-				res.Warning = fmt.Sprintf("replication warning, message has arrived only to %d replicas", int(acks))
-			}
+			// Replicate asynchronously to avoid blocking client responses.
+			go replication.BroadcastMessage(data, nodes)
 		}
 	}
 }
