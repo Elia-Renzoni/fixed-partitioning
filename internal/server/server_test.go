@@ -14,7 +14,11 @@ import (
 	"github.com/fixed-partitioning/internal/sharding"
 )
 
-const clusterLen = 6
+const (
+	clusterLen = 6
+	key        = "foo"
+	value      = "bar"
+)
 
 func TestServer(t *testing.T) {
 	members := replication.NewCluster()
@@ -98,7 +102,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if res.Message != "bar" {
+	if res.Message != value {
 		t.Fatal(res.Message)
 	}
 
@@ -149,9 +153,9 @@ func createPartitionTable(c *replication.Cluster) (*sharding.PartitionTable, err
 
 func prepareClientRequest(storeRouter string) ([]byte, error) {
 	req := model.TCPRequest{}
-	req.Key = []byte("foo")
+	req.Key = []byte(key)
 	if storeRouter == model.ClientAdd {
-		req.Value = []byte("bar")
+		req.Value = []byte(value)
 	}
 	req.RequestType = "client"
 	req.StoreRouter = storeRouter
