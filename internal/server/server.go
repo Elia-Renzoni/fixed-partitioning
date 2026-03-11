@@ -112,6 +112,11 @@ func (s *Server) handleConnection() {
 				if readErr == io.EOF {
 					break
 				}
+				// If the client doesn't half-close, a read timeout will fire.
+				// Treat it as end-of-request so we can still respond.
+				if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
+					break
+				}
 				return
 			}
 		}

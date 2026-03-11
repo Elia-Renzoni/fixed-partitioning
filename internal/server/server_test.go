@@ -24,13 +24,15 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var s *server.Server
-	s, err = server.NewServer("127.0.0.1", "9090", members, pt)
+	var listeners []*server.Server
+	listeners, err = createMultipleListeners(members, pt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	go s.DoListen()
+	for _, listener := range listeners {
+		go listener.DoListen()
+	}
 
 	time.Sleep(2 * time.Second)
 
@@ -47,7 +49,8 @@ func TestServer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	for _, dataToSend := range reqs {
 		wg.Go(func() {
-			res, err := makeTCPRequest(dataToSend, "127.0.0.1:9090")
+			// assuming that 127.0.0.1:5050 is the coordinator node
+			res, err := makeTCPRequest(dataToSend, "127.0.0.1:5050")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -63,8 +66,9 @@ func TestServer(t *testing.T) {
 	wg.Wait()
 }
 
+const clusterLen = 6
+
 func createCluster() (*replication.Cluster, error) {
-	const clusterLen = 6
 	var c = replication.NewCluster()
 	for i := range clusterLen {
 		err := c.AddNode(fmt.Sprintf("127.0.0.1:505%d", i))
@@ -73,6 +77,22 @@ func createCluster() (*replication.Cluster, error) {
 		}
 	}
 	return c, nil
+}
+
+func createMultipleListeners(
+	members *replication.Cluster,
+	pTable *sharding.PartitionTable,
+) ([]*server.Server, error) {
+	servers := make([]*server.Server, 0)
+	for i := range clusterLen {
+		port := fmt.Sprintf("505%d", i)
+		s, err := server.NewServer("127.0.0.1", port, members, pTable)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, s)
+	}
+	return servers, nil
 }
 
 func createPartitionTable(c *replication.Cluster) (*sharding.PartitionTable, error) {
@@ -108,6 +128,11 @@ func makeTCPRequest(data []byte, address string) (model.TCPResponse, error) {
 	defer conn.Close()
 
 	conn.Write(data)
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		// Signal end of request so the server doesn't block waiting for EOF.
+		_ = tcpConn.CloseWrite()
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 	buf := make([]byte, 2048)
 	n, _ := conn.Read(buf)
