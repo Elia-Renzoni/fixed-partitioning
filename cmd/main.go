@@ -1,7 +1,74 @@
 package main
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+
+	"github.com/fixed-partitioning/internal/model"
+	"github.com/fixed-partitioning/internal/options"
+	"github.com/fixed-partitioning/internal/replication"
+	"github.com/fixed-partitioning/internal/server"
+	"github.com/fixed-partitioning/internal/sharding"
+)
 
 func main() {
-	fmt.Println("vim-go")
+	opt, err := options.ParseConf()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	cluster := replication.NewCluster()
+	if opt.GetServerAddress() != "" {
+		if err := cluster.AddNode(opt.GetServerAddress()); err != nil {
+			log.Printf("warning: failed to add local node to cluster: %v", err)
+		}
+	}
+
+	pTable := sharding.NewPartitionTable(opt.GetHashSlots(), opt.GetReplicationFactor(), cluster)
+
+	host, port, err := net.SplitHostPort(opt.GetServerAddress())
+	if err != nil {
+		log.Fatalf("invalid server_address %q: %v", opt.GetServerAddress(), err)
+	}
+
+	srv, err := server.NewServer(host, port, cluster, pTable)
+	if err != nil {
+		log.Fatalf("failed to create server: %v", err)
+	}
+
+	if opt.GetCoordinatorAddress() != "" && opt.GetCoordinatorAddress() != opt.GetServerAddress() {
+		if err := sendJoin(opt.GetCoordinatorAddress(), opt.GetServerAddress()); err != nil {
+			log.Printf("warning: join request failed: %v", err)
+		}
+	}
+
+	log.Printf("listening on %s", opt.GetServerAddress())
+	srv.DoListen()
+}
+
+func sendJoin(coordinator, self string) error {
+	req := model.TCPRequest{
+		RequestType: model.JoinReq,
+		NodeAddress: self,
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	resBytes := replication.Send(coordinator, data)
+	if resBytes == nil {
+		return fmt.Errorf("no response from coordinator %s", coordinator)
+	}
+
+	var res model.TCPResponse
+	if err := json.Unmarshal(resBytes, &res); err != nil {
+		return err
+	}
+	if res.Warning != "" {
+		return fmt.Errorf("got warning %s", res.Warning)
+	}
+	return nil
 }
