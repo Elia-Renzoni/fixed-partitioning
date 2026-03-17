@@ -33,18 +33,18 @@ func pickNodeFromPTable(nodes []string) string {
 
 func exampleDocument() []byte {
 	return []byte(`{
-	                                "_id": "65f1a2bc9d1e4f0012345678",
-                                "name": "Alice Rossi",
-                                "email": "alice.rossi@example.com",
-                                "age": 29,
-                                "active": true,
-                                "roles": ["user", "editor"],
-                                "profile": {
-                                "bio": "Software engineer",
-                                "location": "Pesaro, IT"
-                                },
-                                 "createdAt": "2026-02-27T10:00:00Z"
-	                        }`)
+	           "_id": "65f1a2bc9d1e4f0012345678",
+               "name": "Alice Rossi",
+               "email": "alice.rossi@example.com",
+               "age": 29,
+               "active": true,
+               "roles": ["user", "editor"],
+               "profile": {
+                    "bio": "Software engineer",
+                    "location": "Pesaro, IT"
+                },
+                "createdAt": "2026-02-27T10:00:00Z"
+	            }`)
 }
 
 func sendClientReq(destinationAddress string, req model.TCPRequest) (model.TCPResponse, error) {
