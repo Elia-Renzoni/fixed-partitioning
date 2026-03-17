@@ -10,6 +10,7 @@ func Send(destinationAddress string, message []byte) []byte {
 	if err != nil {
 		return nil
 	}
+	defer conn.Close()
 
 	conn.Write(message)
 
