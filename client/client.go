@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"strconv"
 	"time"
@@ -17,7 +18,17 @@ type clientConf struct {
 
 // pickNodeFromPTable returns the first element of the Partition Table
 func pickNodeFromPTable(nodes []string) string {
-	return ""
+	candidates := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if node != "" {
+			candidates = append(candidates, node)
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	return candidates[rand.IntN(len(candidates))]
 }
 
 func exampleDocument() []byte {
