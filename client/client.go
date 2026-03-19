@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -38,8 +39,7 @@ func pickNodeFromPTable(nodes []string) string {
 	return selectedNode
 }
 
-func exampleDocument() []byte {
-	return []byte(`{
+var exampleDocument = []byte(`{
 	           "_id": "65f1a2bc9d1e4f0012345678",
                "name": "Alice Rossi",
                "email": "alice.rossi@example.com",
@@ -52,7 +52,6 @@ func exampleDocument() []byte {
                 },
                 "createdAt": "2026-02-27T10:00:00Z"
 	            }`)
-}
 
 func sendClientReq(destinationAddress string, req model.TCPRequest) (model.TCPResponse, error) {
 	data, err := json.Marshal(req)
@@ -114,7 +113,7 @@ func sendSetKVRequest(nodeAddress string, key, value []byte) error {
 	return nil
 }
 
-func sendGetPTableRequest(coordAddress string) (map[int][]string, error) {
+func sendGetPTableRequest(coordAddress string) ([]string, error) {
 	req := model.TCPRequest{
 		RequestType: model.ShardingReq,
 		StoreRouter: model.ShardingGet,
@@ -132,15 +131,29 @@ func sendGetPTableRequest(coordAddress string) (map[int][]string, error) {
 		return nil, errors.New("empty partition table response")
 	}
 
-	raw, _ := json.Marshal(res.Message)
-
-	var table map[int][]string
-	if err := json.Unmarshal(raw, &table); err != nil {
-		return nil, err
+	msg, ok := res.Message.([]string)
+	if !ok {
+		return nil, errors.New("empty nodes")
 	}
 
-	return table, nil
+	return msg, nil
 }
 
 func main() {
+	addr := flag.String("coord", "127.0.0.1:5050", "coordinator address")
+	flag.Parse()
+
+	pTableNodes, err := sendGetPTableRequest(*addr)
+	if err != nil {
+		panic(err)
+	}
+
+	node := pickNodeFromPTable(pTableNodes)
+	if node == "" {
+		panic("epmty node for the requested partition")
+	}
+
+	if err := sendSetKVRequest(node, []byte("foo"), exampleDocument); err != nil {
+		panic(err)
+	}
 }
