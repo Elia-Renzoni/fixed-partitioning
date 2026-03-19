@@ -7,28 +7,35 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/fixed-partitioning/internal/model"
 )
 
-type clientConf struct {
-}
-
 // pickNodeFromPTable returns the first element of the Partition Table
 func pickNodeFromPTable(nodes []string) string {
-	candidates := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		if node != "" {
-			candidates = append(candidates, node)
-		}
-	}
-	if len(candidates) == 0 {
+	if len(nodes) == 0 {
 		return ""
 	}
 
-	return candidates[rand.IntN(len(candidates))]
+	var (
+		isGood       bool = false
+		selectedNode string
+		times        int
+	)
+
+	const threshold int = 10
+	for !isGood && times < threshold {
+		selectedNode := nodes[rand.IntN(len(nodes))]
+		if selectedNode == "" {
+			times += 1
+			continue
+		}
+
+		isGood = true
+	}
+
+	return selectedNode
 }
 
 func exampleDocument() []byte {
@@ -100,6 +107,7 @@ func sendSetKVRequest(nodeAddress string, key, value []byte) error {
 	if res.Warning != "" {
 		return fmt.Errorf("warning from server: %s", res.Warning)
 	}
+
 	if msg, ok := res.Message.(string); !ok || msg != "document succesfully added" {
 		return fmt.Errorf("unexpected response: %v", res.Message)
 	}
@@ -124,25 +132,13 @@ func sendGetPTableRequest(coordAddress string) (map[int][]string, error) {
 		return nil, errors.New("empty partition table response")
 	}
 
-	// Response message decodes into map[string]any; re-decode into a concrete map.
-	raw, err := json.Marshal(res.Message)
-	if err != nil {
+	raw, _ := json.Marshal(res.Message)
+
+	var table map[int][]string
+	if err := json.Unmarshal(raw, &table); err != nil {
 		return nil, err
 	}
 
-	var tableJSON map[string][]string
-	if err := json.Unmarshal(raw, &tableJSON); err != nil {
-		return nil, err
-	}
-
-	table := make(map[int][]string, len(tableJSON))
-	for k, v := range tableJSON {
-		idx, err := strconv.Atoi(k)
-		if err != nil {
-			return nil, fmt.Errorf("invalid partition key %q: %w", k, err)
-		}
-		table[idx] = v
-	}
 	return table, nil
 }
 
