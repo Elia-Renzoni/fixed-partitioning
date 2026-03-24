@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/fixed-partitioning/internal/replication"
 )
@@ -166,6 +165,10 @@ type diff struct {
 	distance       int
 }
 
+func (d *diff) fillGaps() {
+	d.distance += 1
+}
+
 type deltaList []diff
 
 func (d *deltaList) insertOrdered(entry diff, latestTrue *int) {
@@ -207,6 +210,15 @@ func (d deltaList) hasNext(index int) bool {
 
 func (d deltaList) get(index int) diff {
 	return d[index]
+}
+
+// getNextBuffer handle deltaList as a circular buffer
+func (d deltaList) getElemInCircularOrder(index *int) diff {
+	if *index >= len(d) {
+		*index += 1
+		return d[0]
+	}
+	return d[*index]
 }
 
 // find the nodes with lowest partitions than the average
@@ -271,6 +283,7 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 	}
 
 	i := 0
+	cBufferPosition := 0
 	for highestList.hasNext(i) {
 		highElem := highestList.get(i)
 		d := highElem.distance
@@ -284,9 +297,7 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 				nodes = slices.Delete(nodes, idx, idx+1)
 			}
 
-			// pick a radom node from lowestList
-			r := rand.New(rand.NewSource(time.Now().UnixNano()))
-			lowElem := lowestList.get(r.Intn(len(lowestList)))
+			lowElem := lowestList.getElemInCircularOrder(&cBufferPosition)
 			nodes = append(nodes, lowElem.nodeAddr)
 			p.pTable[partitionId] = nodes
 			d--
