@@ -274,7 +274,7 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 
 func (p *PartitionTable) filterNodes(
 	nodePerPartitions map[string]int,
-	lowest, highest chan<- string,
+	lowest, highest chan string,
 	average int,
 ) {
 	for node, partitions := range nodePerPartitions {
