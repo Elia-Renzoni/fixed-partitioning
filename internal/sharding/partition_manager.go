@@ -35,7 +35,6 @@ func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTa
 		cluster:           cluster,
 		hasher:            fnv.New64(),
 		replicationFactor: rp,
-		perNodeSlots:      make(map[string]int),
 	}
 }
 
@@ -63,7 +62,8 @@ func (p *PartitionTable) AssignPartitions() error {
 		errs--
 	}
 
-	p.optimalPartitions = p.hashSlots / p.cluster.Len()
+	totalAssignments := len(p.pTable) * p.replicationFactor
+	p.optimalPartitions = totalAssignments / p.cluster.Len()
 
 	if errs > 0 {
 		return fmt.Errorf("assigned only %d partitions", errs)
@@ -138,6 +138,8 @@ func (p *PartitionTable) FindNodePartitions() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
+	p.perNodeSlots = make(map[string]int)
+
 	for _, nodes := range p.pTable {
 		for _, node := range nodes {
 			p.perNodeSlots[node]++
@@ -149,7 +151,12 @@ func (p *PartitionTable) GetPerNodePartitions() map[string]int {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	return p.perNodeSlots
+	mapCopy := make(map[string]int, len(p.perNodeSlots))
+	for k, v := range p.perNodeSlots {
+		mapCopy[k] = v
+	}
+
+	return mapCopy
 }
 
 type diff struct {
@@ -198,7 +205,7 @@ func (d deltaList) hasNext(index int) bool {
 	return index < len(d)
 }
 
-func (d deltaList) next(index int) diff {
+func (d deltaList) get(index int) diff {
 	return d[index]
 }
 
@@ -249,6 +256,11 @@ FIND_DELTAS:
 		}
 	}
 
+	fmt.Println(p.optimalPartitions)
+	for _, value := range diffList {
+		fmt.Println(value)
+	}
+
 	go p.doBalance(diffList, pivot)
 }
 
@@ -260,19 +272,21 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 
 	i := 0
 	for highestList.hasNext(i) {
-		highElem := highestList.next(i)
+		highElem := highestList.get(i)
 		d := highElem.distance
-		for d >= 0 {
+		for d > 0 {
 			partitionId := highElem.partitionsList[d]
 			nodes := p.pTable[partitionId]
 
 			// TODO-> add tombostones to avoid aggressive delete operation
-			index, _ := slices.BinarySearch(nodes, highElem.nodeAddr)
-			nodes = slices.Delete(nodes, index, index)
+			idx := slices.Index(nodes, highElem.nodeAddr)
+			if idx >= 0 {
+				nodes = slices.Delete(nodes, idx, idx+1)
+			}
 
 			// pick a radom node from lowestList
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
-			lowElem := lowestList.next(r.Intn(len(lowestList)))
+			lowElem := lowestList.get(r.Intn(len(lowestList)))
 			nodes = append(nodes, lowElem.nodeAddr)
 			p.pTable[partitionId] = nodes
 			d--
@@ -300,7 +314,7 @@ func (p *PartitionTable) filterNodes(
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
 	for pId, nodes := range ptableCopy {
-		if _, found := slices.BinarySearch(nodes, d.nodeAddr); found {
+		if found := slices.Contains(nodes, d.nodeAddr); found {
 			d.partitionsList = append(d.partitionsList, pId)
 		}
 	}

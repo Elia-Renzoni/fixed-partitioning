@@ -69,8 +69,9 @@ func TestPartitionTable(t *testing.T) {
 		t.Logf("partition: %d - nodes: %s", p, nodes)
 	}
 
+	ptable.FindNodePartitions()
 	t.Log("------------ average partitions ----------------")
-	for node, p := range average {
+	for node, p := range ptable.GetPerNodePartitions() {
 		t.Logf("node: %s - partitions: %d", node, p)
 	}
 }
