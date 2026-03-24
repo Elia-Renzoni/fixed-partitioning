@@ -161,9 +161,9 @@ type diff struct {
 
 type deltaList []diff
 
-func (d deltaList) insertOrdered(entry diff, latestTrue *int) {
-	if len(d) == 0 {
-		d = append(d, entry)
+func (d *deltaList) insertOrdered(entry diff, latestTrue *int) {
+	if len(*d) == 0 {
+		*d = append(*d, entry)
 		if entry.isHighest {
 			*latestTrue = 0
 		}
@@ -174,24 +174,28 @@ func (d deltaList) insertOrdered(entry diff, latestTrue *int) {
 		// poll the latest true.
 		// append the polled element
 		// replace the old element with entry
-		node := d[*latestTrue]
-		d = append(d, node)
-		d[*latestTrue] = entry
+		node := (*d)[*latestTrue]
+		*d = append(*d, node)
+		(*d)[*latestTrue] = entry
 		*latestTrue += 1
 		return
 	}
 
-	d = append(d, entry)
+	*d = append(*d, entry)
 }
 
 func (d deltaList) splitList(pivot int) (deltaList, deltaList) {
-	lowestList := d[:pivot-1]
+	if pivot < 0 {
+		return nil, nil
+	}
+
+	lowestList := d[:pivot]
 	highestList := d[pivot:]
 	return lowestList, highestList
 }
 
 func (d deltaList) hasNext(index int) bool {
-	return index >= len(d)-1
+	return index < len(d)
 }
 
 func (d deltaList) next(index int) diff {
@@ -250,6 +254,10 @@ FIND_DELTAS:
 
 func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 	lowestList, highestList := diffs.splitList(pivot)
+	if len(lowestList) == 0 || len(highestList) == 0 {
+		return
+	}
+
 	i := 0
 	for highestList.hasNext(i) {
 		highElem := highestList.next(i)
@@ -260,12 +268,13 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 
 			// TODO-> add tombostones to avoid aggressive delete operation
 			index, _ := slices.BinarySearch(nodes, highElem.nodeAddr)
-			slices.Delete(nodes, index, index)
+			nodes = slices.Delete(nodes, index, index)
 
 			// pick a radom node from lowestList
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			lowElem := lowestList.next(r.Intn(len(lowestList)))
 			nodes = append(nodes, lowElem.nodeAddr)
+			p.pTable[partitionId] = nodes
 			d--
 		}
 		i++
