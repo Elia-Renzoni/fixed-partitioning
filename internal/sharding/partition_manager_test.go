@@ -62,12 +62,7 @@ func TestPartitionTable(t *testing.T) {
 	// test partition shuffle operation
 	// for each new cluster node the assigned partitions
 	// must decrease.
-	members.AddNode("127.0.0.1:1002")
-	members.AddNode("127.0.0.1:1003")
-	err = ptable.AssignPartitions()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ptable.RebalancePartitions()
 
 	t.Logf("-----------------------------------------")
 	for p, nodes := range ptable.ReadPartitionTable() {

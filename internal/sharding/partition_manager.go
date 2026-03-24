@@ -83,7 +83,7 @@ func (p *PartitionTable) completeNodesWithRF(attachedNode string) []string {
 		)
 
 		for {
-			nodeID := rand.IntN(p.cluster.Len())
+			nodeID := rand.Intn(p.cluster.Len())
 			selectedNode := p.cluster.GetNodeFromLocation(nodeID)
 			if selectedNode == attachedNode || slices.Contains(nodes, selectedNode) {
 				continue
