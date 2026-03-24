@@ -214,10 +214,7 @@ func (d deltaList) get(index int) diff {
 
 // getNextBuffer handle deltaList as a circular buffer
 func (d deltaList) getElemInCircularOrder(index *int) diff {
-	if *index >= len(d) {
-		*index += 1
-		return d[0]
-	}
+	*index = (*index + 1) % len(d)
 	return d[*index]
 }
 
@@ -298,6 +295,7 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 			}
 
 			lowElem := lowestList.getElemInCircularOrder(&cBufferPosition)
+			fmt.Printf("chosen element: %v\n", lowElem)
 			nodes = append(nodes, lowElem.nodeAddr)
 			p.pTable[partitionId] = nodes
 			d--
