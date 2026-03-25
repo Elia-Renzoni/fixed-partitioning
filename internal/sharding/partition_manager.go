@@ -165,10 +165,6 @@ type diff struct {
 	distance       int
 }
 
-func (d *diff) fillGaps() {
-	d.distance += 1
-}
-
 type deltaList []diff
 
 func (d *deltaList) insertOrdered(entry diff, latestTrue *int) {
@@ -214,7 +210,11 @@ func (d deltaList) get(index int) diff {
 
 // getNextBuffer handle deltaList as a circular buffer
 func (d deltaList) getElemInCircularOrder(index *int) diff {
-	*index = (*index + 1) % len(d)
+	if *index == len(d)-1 {
+		*index = 0
+		return d[*index]
+	}
+	*index += 1
 	return d[*index]
 }
 
@@ -270,7 +270,7 @@ FIND_DELTAS:
 		fmt.Println(value)
 	}
 
-	go p.doBalance(diffList, pivot)
+	p.doBalance(diffList, pivot)
 }
 
 func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
@@ -295,7 +295,6 @@ func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
 			}
 
 			lowElem := lowestList.getElemInCircularOrder(&cBufferPosition)
-			fmt.Printf("chosen element: %v\n", lowElem)
 			nodes = append(nodes, lowElem.nodeAddr)
 			p.pTable[partitionId] = nodes
 			d--
