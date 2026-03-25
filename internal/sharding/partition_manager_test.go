@@ -39,6 +39,14 @@ func TestPartitionTable(t *testing.T) {
 		t.Logf("partition: %d - nodes: %s", p, nodes)
 	}
 
+	ptable.FindNodePartitions()
+	average := ptable.GetPerNodePartitions()
+
+	t.Log("------------ average partitions ----------------")
+	for node, p := range average {
+		t.Logf("node: %s - partitions: %d", node, p)
+	}
+
 	newSlots := map[int][]string{
 		500: []string{"127.0.0.1:6060"},
 	}
@@ -49,5 +57,21 @@ func TestPartitionTable(t *testing.T) {
 	nodes := table[500]
 	if !slices.Contains(nodes, "127.0.0.1:6060") {
 		t.Fatalf("got: %s", nodes)
+	}
+
+	// test partition shuffle operation
+	// for each new cluster node the assigned partitions
+	// must decrease.
+	ptable.RebalancePartitions()
+
+	t.Logf("-----------------------------------------")
+	for p, nodes := range ptable.ReadPartitionTable() {
+		t.Logf("partition: %d - nodes: %s", p, nodes)
+	}
+
+	ptable.FindNodePartitions()
+	t.Log("------------ average partitions ----------------")
+	for node, p := range ptable.GetPerNodePartitions() {
+		t.Logf("node: %s - partitions: %d", node, p)
 	}
 }

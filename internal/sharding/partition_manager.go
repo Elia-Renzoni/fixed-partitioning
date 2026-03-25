@@ -6,7 +6,7 @@ import (
 	"hash"
 	"hash/fnv"
 	"maps"
-	"math/rand/v2"
+	"math/rand"
 	"slices"
 	"sync"
 
@@ -19,9 +19,10 @@ type PartitionTable struct {
 	cluster           *replication.Cluster
 	pTable            map[int][]string
 	hasher            hash.Hash64
-	averageSlots      int
+	perNodeSlots      map[string]int
 	mutex             sync.RWMutex
 	replicationFactor int
+	optimalPartitions int
 }
 
 const minClusterLen int = 4
@@ -60,8 +61,8 @@ func (p *PartitionTable) AssignPartitions() error {
 		errs--
 	}
 
-	// compute average slots
-	p.averageSlots = p.hashSlots / p.cluster.Len()
+	totalAssignments := len(p.pTable) * p.replicationFactor
+	p.optimalPartitions = totalAssignments / p.cluster.Len()
 
 	if errs > 0 {
 		return fmt.Errorf("assigned only %d partitions", errs)
@@ -81,7 +82,7 @@ func (p *PartitionTable) completeNodesWithRF(attachedNode string) []string {
 		)
 
 		for {
-			nodeID := rand.IntN(p.cluster.Len())
+			nodeID := rand.Intn(p.cluster.Len())
 			selectedNode := p.cluster.GetNodeFromLocation(nodeID)
 			if selectedNode == attachedNode || slices.Contains(nodes, selectedNode) {
 				continue
@@ -130,4 +131,199 @@ func (p *PartitionTable) FindNodes(pId int) []string {
 	defer p.mutex.RUnlock()
 
 	return p.pTable[pId]
+}
+
+func (p *PartitionTable) FindNodePartitions() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.perNodeSlots = make(map[string]int)
+
+	for _, nodes := range p.pTable {
+		for _, node := range nodes {
+			p.perNodeSlots[node]++
+		}
+	}
+}
+
+func (p *PartitionTable) GetPerNodePartitions() map[string]int {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	mapCopy := make(map[string]int, len(p.perNodeSlots))
+	for k, v := range p.perNodeSlots {
+		mapCopy[k] = v
+	}
+
+	return mapCopy
+}
+
+type diff struct {
+	nodeAddr       string
+	partitionsList []int
+	isHighest      bool
+	distance       int
+}
+
+type deltaList []diff
+
+func (d *deltaList) insertOrdered(entry diff, latestTrue *int) {
+	if len(*d) == 0 {
+		*d = append(*d, entry)
+		if entry.isHighest {
+			*latestTrue = 0
+		}
+		return
+	}
+
+	if !entry.isHighest && *latestTrue >= 0 {
+		// poll the latest true.
+		// append the polled element
+		// replace the old element with entry
+		node := (*d)[*latestTrue]
+		*d = append(*d, node)
+		(*d)[*latestTrue] = entry
+		*latestTrue += 1
+		return
+	}
+
+	*d = append(*d, entry)
+}
+
+func (d deltaList) splitList(pivot int) (deltaList, deltaList) {
+	if pivot < 0 {
+		return nil, nil
+	}
+
+	lowestList := d[:pivot]
+	highestList := d[pivot:]
+	return lowestList, highestList
+}
+
+func (d deltaList) hasNext(index int) bool {
+	return index < len(d)
+}
+
+func (d deltaList) get(index int) diff {
+	return d[index]
+}
+
+// getNextBuffer handle deltaList as a circular buffer
+func (d deltaList) getElemInCircularOrder(index *int) diff {
+	if *index == len(d)-1 {
+		*index = 0
+		return d[*index]
+	}
+	*index += 1
+	return d[*index]
+}
+
+// find the nodes with lowest partitions than the average
+// find the nodes with the highest partiions than the average
+func (p *PartitionTable) RebalancePartitions() {
+	p.FindNodePartitions()
+	nodePerPartitions := p.GetPerNodePartitions()
+	average := p.optimalPartitions
+
+	low := make(chan string)
+	high := make(chan string)
+
+	go p.filterNodes(nodePerPartitions, low, high, average)
+
+	diffList := make(deltaList, 0)
+	pivot := -1
+
+FIND_DELTAS:
+	for {
+		select {
+		case node, ok := <-low:
+			if !ok {
+				break FIND_DELTAS
+			}
+
+			delta := nodePerPartitions[node] - average
+			d := diff{
+				nodeAddr:  node,
+				isHighest: false,
+				distance:  delta,
+			}
+			d.findPartitionsByNodes(p.ReadPartitionTable())
+			diffList.insertOrdered(d, &pivot)
+		case node, ok := <-high:
+			if !ok {
+				break FIND_DELTAS
+			}
+
+			delta := nodePerPartitions[node] - average
+			d := diff{
+				nodeAddr:  node,
+				isHighest: true,
+				distance:  delta,
+			}
+			d.findPartitionsByNodes(p.ReadPartitionTable())
+			diffList.insertOrdered(d, &pivot)
+		}
+	}
+
+	fmt.Println(p.optimalPartitions)
+	for _, value := range diffList {
+		fmt.Println(value)
+	}
+
+	p.doBalance(diffList, pivot)
+}
+
+func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
+	lowestList, highestList := diffs.splitList(pivot)
+	if len(lowestList) == 0 || len(highestList) == 0 {
+		return
+	}
+
+	i := 0
+	cBufferPosition := 0
+	for highestList.hasNext(i) {
+		highElem := highestList.get(i)
+		d := highElem.distance
+		for d > 0 {
+			partitionId := highElem.partitionsList[d]
+			nodes := p.pTable[partitionId]
+
+			// TODO-> add tombostones to avoid aggressive delete operation
+			idx := slices.Index(nodes, highElem.nodeAddr)
+			if idx >= 0 {
+				nodes = slices.Delete(nodes, idx, idx+1)
+			}
+
+			lowElem := lowestList.getElemInCircularOrder(&cBufferPosition)
+			nodes = append(nodes, lowElem.nodeAddr)
+			p.pTable[partitionId] = nodes
+			d--
+		}
+		i++
+	}
+}
+
+func (p *PartitionTable) filterNodes(
+	nodePerPartitions map[string]int,
+	lowest, highest chan string,
+	average int,
+) {
+	for node, partitions := range nodePerPartitions {
+		if partitions > average {
+			highest <- node
+		} else if partitions < average {
+			lowest <- node
+		}
+	}
+
+	close(lowest)
+	close(highest)
+}
+
+func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
+	for pId, nodes := range ptableCopy {
+		if found := slices.Contains(nodes, d.nodeAddr); found {
+			d.partitionsList = append(d.partitionsList, pId)
+		}
+	}
 }
