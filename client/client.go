@@ -27,7 +27,7 @@ func pickNodeFromPTable(nodes []string) string {
 
 	const threshold int = 10
 	for !isGood && times < threshold {
-		selectedNode := nodes[rand.IntN(len(nodes))]
+		selectedNode = nodes[rand.IntN(len(nodes))]
 		if selectedNode == "" {
 			times += 1
 			continue
