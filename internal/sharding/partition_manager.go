@@ -26,6 +26,7 @@ type PartitionTable struct {
 	replicationFactor int
 	optimalPartitions int
 	chunksCh          chan []byte
+	quitCh            chan struct{}
 }
 
 const minClusterLen int = 4
@@ -275,8 +276,8 @@ FIND_DELTAS:
 
 	p.doBalance(diffList, pivot)
 
-	p.chunksCh = make(chan []byte, 100)
-	defer close(p.chunksCh)
+	p.chunksCh = make(chan []byte)
+	p.quitCh = make(chan struct{})
 
 	go p.movePartitionData()
 	go p.fragmentPTable()
@@ -330,15 +331,22 @@ func (p *PartitionTable) filterNodes(
 }
 
 func (p *PartitionTable) movePartitionData() {
-	aliveNodes := p.cluster.GetAllNodes()
-	var wg = &sync.WaitGroup{}
-	for chunk := range p.chunksCh {
-		wg.Go(func() {
-			replication.BroadcastMessage(chunk, aliveNodes)
-		})
-	}
+	defer close(p.chunksCh)
+	defer close(p.quitCh)
 
-	wg.Wait()
+	aliveNodes := p.cluster.GetAllNodes()
+	for {
+		select {
+		case chunk, ok := <-p.chunksCh:
+			if !ok {
+				break
+			}
+
+			go replication.BroadcastMessage(chunk, aliveNodes)
+		case <-p.quitCh:
+			return
+		}
+	}
 }
 
 func (p *PartitionTable) fragmentPTable() {
@@ -350,11 +358,22 @@ func (p *PartitionTable) fragmentPTable() {
 		return
 	}
 
-	var buffer []byte
-	const chunkSize = 2048 // 2048 bytes
+	var buffer = make([]byte, len(datas))
+	var chunkSize = len(datas) / 4
+	if chunkSize == 0 {
+		chunkSize = len(datas)
+	}
+
+	copy(buffer, datas)
+
 	for len(buffer) > 0 {
-		chunks = append(chunks, datas[:chunkSize])
-		buffer = datas[chunkSize:]
+		end := chunkSize
+		if end > len(buffer) {
+			end = len(buffer)
+		}
+
+		chunks = append(chunks, buffer[:end])
+		buffer = buffer[end:]
 	}
 
 	for _, chunkValue := range chunks {
@@ -362,6 +381,9 @@ func (p *PartitionTable) fragmentPTable() {
 		data, _ := json.Marshal(resSingleChunk)
 		p.chunksCh <- data
 	}
+
+	p.quitCh <- struct{}{}
+
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
