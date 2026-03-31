@@ -350,35 +350,30 @@ func (p *PartitionTable) movePartitionData() {
 }
 
 func (p *PartitionTable) fragmentPTable() {
-	var resSingleChunk model.TCPResponse
-	var chunks = make([][]byte, 0)
-
-	datas, err := json.Marshal(p.pTable)
-	if err != nil {
-		return
+	var reqSingleChunk model.TCPRequest
+	var chunks = make([]map[int][]string, 0)
+	var chunkLength = len(p.pTable) / 4
+	if chunkLength == 0 {
+		chunkLength = len(p.pTable)
 	}
 
-	var buffer = make([]byte, len(datas))
-	var chunkSize = len(datas) / 4
-	if chunkSize == 0 {
-		chunkSize = len(datas)
-	}
-
-	copy(buffer, datas)
-
-	for len(buffer) > 0 {
-		end := chunkSize
-		if end > len(buffer) {
-			end = len(buffer)
+	chunkCounter := 0
+	for pId, nodes := range p.pTable {
+		chunkCounter += chunkLength
+		if chunkCounter <= chunkLength {
+			chunk := make(map[int][]string)
+			chunk[pId] = nodes
+			chunks = append(chunks, chunk)
+			continue
 		}
-
-		chunks = append(chunks, buffer[:end])
-		buffer = buffer[end:]
 	}
 
 	for _, chunkValue := range chunks {
-		resSingleChunk.Message = chunkValue
-		data, _ := json.Marshal(resSingleChunk)
+		fmt.Println(chunkValue)
+		reqSingleChunk.RequestType = model.ShardingReq
+		reqSingleChunk.StoreRouter = model.ShardingSet
+		reqSingleChunk.PTable = chunkValue
+		data, _ := json.Marshal(reqSingleChunk)
 		p.chunksCh <- data
 	}
 
