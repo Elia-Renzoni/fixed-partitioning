@@ -23,6 +23,7 @@ type PartitionTable struct {
 	mutex             sync.RWMutex
 	replicationFactor int
 	optimalPartitions int
+	chunksCh          chan []byte
 }
 
 const minClusterLen int = 4
@@ -271,6 +272,15 @@ FIND_DELTAS:
 	}
 
 	p.doBalance(diffList, pivot)
+
+	p.chunksCh = make(chan []byte, 100)
+	defer close(p.chunksCh)
+
+	var wg = &sync.WaitGroup{}
+	wg.Go(p.movePartitionData)
+	wg.Go(p.fragmentPTable)
+
+	wg.Wait()
 }
 
 func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
@@ -308,6 +318,9 @@ func (p *PartitionTable) filterNodes(
 	lowest, highest chan string,
 	average int,
 ) {
+	defer close(lowest)
+	defer close(highest)
+
 	for node, partitions := range nodePerPartitions {
 		if partitions > average {
 			highest <- node
@@ -315,9 +328,24 @@ func (p *PartitionTable) filterNodes(
 			lowest <- node
 		}
 	}
+}
 
-	close(lowest)
-	close(highest)
+func (p *PartitionTable) movePartitionData() {
+	// create chunks of the partition table and broadcast the
+	// balanced partition table
+	// [] [] [] [] [] [] [] [] []
+	aliveNodes := p.cluster.GetAllNodes()
+	var wg = &sync.WaitGroup{}
+	for chunk := range p.chunksCh {
+		wg.Go(func() {
+			replication.BroadcastMessage(chunk, aliveNodes)
+		})
+	}
+
+	wg.Wait()
+}
+
+func (p *PartitionTable) fragmentPTable() {
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
