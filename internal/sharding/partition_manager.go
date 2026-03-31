@@ -1,6 +1,7 @@
 package sharding
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/replication"
 )
 
@@ -331,9 +333,6 @@ func (p *PartitionTable) filterNodes(
 }
 
 func (p *PartitionTable) movePartitionData() {
-	// create chunks of the partition table and broadcast the
-	// balanced partition table
-	// [] [] [] [] [] [] [] [] []
 	aliveNodes := p.cluster.GetAllNodes()
 	var wg = &sync.WaitGroup{}
 	for chunk := range p.chunksCh {
@@ -346,6 +345,26 @@ func (p *PartitionTable) movePartitionData() {
 }
 
 func (p *PartitionTable) fragmentPTable() {
+	var resSingleChunk model.TCPResponse
+	var chunks = make([][]byte, 0)
+
+	datas, err := json.Marshal(p.pTable)
+	if err != nil {
+		return
+	}
+
+	var buffer []byte
+	const chunkSize = 2048 // 2048 bytes
+	for len(buffer) > 0 {
+		chunks = append(chunks, datas[:chunkSize])
+		buffer = datas[chunkSize:]
+	}
+
+	for _, chunkValue := range chunks {
+		resSingleChunk.Message = chunkValue
+		data, _ := json.Marshal(resSingleChunk)
+		p.chunksCh <- data
+	}
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
