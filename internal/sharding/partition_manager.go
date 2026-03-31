@@ -208,7 +208,7 @@ func (d deltaList) get(index int) diff {
 	return d[index]
 }
 
-// getNextBuffer handle deltaList as a circular buffer
+// getElemInCircularOrder handle deltaList as a circular buffer
 func (d deltaList) getElemInCircularOrder(index *int) diff {
 	if *index == len(d)-1 {
 		*index = 0
