@@ -350,26 +350,29 @@ func (p *PartitionTable) movePartitionData() {
 }
 
 func (p *PartitionTable) fragmentPTable() {
-	var reqSingleChunk model.TCPRequest
-	var chunks = make([]map[int][]string, 0)
-	var chunkLength = len(p.pTable) / 4
+	var (
+		reqSingleChunk model.TCPRequest
+		chunks         = make([]map[int][]string, 0)
+		chunkLength    = len(p.pTable) / 4
+		chunkCounter   = len(p.pTable)
+		singleChunks   []map[int][]string
+		latestOffset   int
+	)
+
 	if chunkLength == 0 {
 		chunkLength = len(p.pTable)
 	}
 
-	chunkCounter := 0
-	for pId, nodes := range p.pTable {
-		chunkCounter += chunkLength
-		if chunkCounter <= chunkLength {
-			chunk := make(map[int][]string)
-			chunk[pId] = nodes
-			chunks = append(chunks, chunk)
-			continue
-		}
+	for chunkCounter > 0 {
+		singleChunks, latestOffset = p.generateChunks(chunkLength, latestOffset)
+		copy(chunks, singleChunks)
+		chunkCounter -= chunkLength
 	}
 
+	fmt.Println("chunked partition table")
+	fmt.Println(chunks)
+
 	for _, chunkValue := range chunks {
-		fmt.Println(chunkValue)
 		reqSingleChunk.RequestType = model.ShardingReq
 		reqSingleChunk.StoreRouter = model.ShardingSet
 		reqSingleChunk.PTable = chunkValue
@@ -378,7 +381,30 @@ func (p *PartitionTable) fragmentPTable() {
 	}
 
 	p.quitCh <- struct{}{}
+}
 
+func (p *PartitionTable) generateChunks(maxChunks int, offset int) ([]map[int][]string, int) {
+	result := make([]map[int][]string, maxChunks)
+	var chunkOffset int
+
+	for pId, nodes := range p.pTable {
+		if chunkOffset >= maxChunks {
+			break
+		}
+
+		if offset != 0 && chunkOffset < offset {
+			fmt.Println("foobar")
+			continue
+		}
+
+		chunk := map[int][]string{
+			pId: nodes,
+		}
+		result = append(result, chunk)
+		chunkOffset += 1
+	}
+
+	return result, chunkOffset
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
