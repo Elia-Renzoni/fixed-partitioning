@@ -278,11 +278,8 @@ FIND_DELTAS:
 	p.chunksCh = make(chan []byte, 100)
 	defer close(p.chunksCh)
 
-	var wg = &sync.WaitGroup{}
-	wg.Go(p.movePartitionData)
-	wg.Go(p.fragmentPTable)
-
-	wg.Wait()
+	go p.movePartitionData()
+	go p.fragmentPTable()
 }
 
 func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
