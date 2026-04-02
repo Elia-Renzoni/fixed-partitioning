@@ -1,6 +1,7 @@
 package sharding
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/replication"
 )
 
@@ -23,6 +25,8 @@ type PartitionTable struct {
 	mutex             sync.RWMutex
 	replicationFactor int
 	optimalPartitions int
+	chunksCh          chan []byte
+	quitCh            chan struct{}
 }
 
 const minClusterLen int = 4
@@ -165,57 +169,14 @@ type diff struct {
 	distance       int
 }
 
-type deltaList []diff
-
-func (d *deltaList) insertOrdered(entry diff, latestTrue *int) {
-	if len(*d) == 0 {
-		*d = append(*d, entry)
-		if entry.isHighest {
-			*latestTrue = 0
-		}
-		return
-	}
-
-	if !entry.isHighest && *latestTrue >= 0 {
-		// poll the latest true.
-		// append the polled element
-		// replace the old element with entry
-		node := (*d)[*latestTrue]
-		*d = append(*d, node)
-		(*d)[*latestTrue] = entry
-		*latestTrue += 1
-		return
-	}
-
-	*d = append(*d, entry)
-}
-
-func (d deltaList) splitList(pivot int) (deltaList, deltaList) {
-	if pivot < 0 {
-		return nil, nil
-	}
-
-	lowestList := d[:pivot]
-	highestList := d[pivot:]
-	return lowestList, highestList
-}
-
-func (d deltaList) hasNext(index int) bool {
-	return index < len(d)
-}
-
-func (d deltaList) get(index int) diff {
-	return d[index]
-}
-
-// getElemInCircularOrder handle deltaList as a circular buffer
-func (d deltaList) getElemInCircularOrder(index *int) diff {
-	if *index == len(d)-1 {
+// getElemInCircularOrder handle lowDiffs as a circular buffer
+func getElemInCircularOrder(lowDiffs []diff, index *int) diff {
+	if *index == len(lowDiffs)-1 {
 		*index = 0
-		return d[*index]
+		return lowDiffs[*index]
 	}
 	*index += 1
-	return d[*index]
+	return lowDiffs[*index]
 }
 
 // find the nodes with lowest partitions than the average
@@ -226,12 +187,11 @@ func (p *PartitionTable) RebalancePartitions() {
 	average := p.optimalPartitions
 
 	low := make(chan string)
+	lowList := make([]diff, 0)
 	high := make(chan string)
+	highList := make([]diff, 0)
 
 	go p.filterNodes(nodePerPartitions, low, high, average)
-
-	diffList := make(deltaList, 0)
-	pivot := -1
 
 FIND_DELTAS:
 	for {
@@ -248,7 +208,7 @@ FIND_DELTAS:
 				distance:  delta,
 			}
 			d.findPartitionsByNodes(p.ReadPartitionTable())
-			diffList.insertOrdered(d, &pivot)
+			lowList = append(lowList, d)
 		case node, ok := <-high:
 			if !ok {
 				break FIND_DELTAS
@@ -261,45 +221,42 @@ FIND_DELTAS:
 				distance:  delta,
 			}
 			d.findPartitionsByNodes(p.ReadPartitionTable())
-			diffList.insertOrdered(d, &pivot)
+			highList = append(highList, d)
 		}
 	}
 
-	fmt.Println(p.optimalPartitions)
-	for _, value := range diffList {
-		fmt.Println(value)
-	}
+	p.doBalance(lowList, highList)
 
-	p.doBalance(diffList, pivot)
+	p.chunksCh = make(chan []byte)
+	p.quitCh = make(chan struct{})
+
+	go p.movePartitionData()
+	go p.fragmentPTable()
 }
 
-func (p *PartitionTable) doBalance(diffs deltaList, pivot int) {
-	lowestList, highestList := diffs.splitList(pivot)
-	if len(lowestList) == 0 || len(highestList) == 0 {
+func (p *PartitionTable) doBalance(lowList, highList []diff) {
+	if len(lowList) == 0 || len(highList) == 0 {
 		return
 	}
 
-	i := 0
-	cBufferPosition := 0
-	for highestList.hasNext(i) {
-		highElem := highestList.get(i)
-		d := highElem.distance
-		for d > 0 {
-			partitionId := highElem.partitionsList[d]
-			nodes := p.pTable[partitionId]
+	buffPosition := 0
+	for _, highElem := range highList {
+		for highElem.distance > 0 {
+			pId := highElem.partitionsList[highElem.distance]
 
+			nodes := p.pTable[pId]
 			// TODO-> add tombostones to avoid aggressive delete operation
 			idx := slices.Index(nodes, highElem.nodeAddr)
 			if idx >= 0 {
 				nodes = slices.Delete(nodes, idx, idx+1)
 			}
 
-			lowElem := lowestList.getElemInCircularOrder(&cBufferPosition)
+			lowElem := getElemInCircularOrder(lowList, &buffPosition)
 			nodes = append(nodes, lowElem.nodeAddr)
-			p.pTable[partitionId] = nodes
-			d--
+			p.pTable[pId] = nodes
+
+			highElem.distance -= 1
 		}
-		i++
 	}
 }
 
@@ -308,6 +265,9 @@ func (p *PartitionTable) filterNodes(
 	lowest, highest chan string,
 	average int,
 ) {
+	defer close(lowest)
+	defer close(highest)
+
 	for node, partitions := range nodePerPartitions {
 		if partitions > average {
 			highest <- node
@@ -315,9 +275,59 @@ func (p *PartitionTable) filterNodes(
 			lowest <- node
 		}
 	}
+}
 
-	close(lowest)
-	close(highest)
+func (p *PartitionTable) movePartitionData() {
+	defer close(p.chunksCh)
+	defer close(p.quitCh)
+
+	aliveNodes := p.cluster.GetAllNodes()
+	for {
+		select {
+		case chunk, ok := <-p.chunksCh:
+			if !ok {
+				break
+			}
+
+			go replication.BroadcastMessage(chunk, aliveNodes)
+		case <-p.quitCh:
+			return
+		}
+	}
+}
+
+func (p *PartitionTable) fragmentPTable() {
+	chunkSize := len(p.pTable) / 4
+	if chunkSize == 0 {
+		chunkSize = 20
+	}
+
+	batch := make(map[int][]string)
+
+	takeBatch := func() {
+		reqSingleChunk := model.TCPRequest{}
+		reqSingleChunk.RequestType = model.ShardingReq
+		reqSingleChunk.StoreRouter = model.ShardingSet
+		reqSingleChunk.PTable = batch
+
+		data, _ := json.Marshal(reqSingleChunk)
+		p.chunksCh <- data
+
+	}
+
+	for pId, nodes := range p.pTable {
+		batch[pId] = nodes
+		if len(batch) == chunkSize {
+			takeBatch()
+			batch = make(map[int][]string)
+		}
+	}
+
+	if len(batch) > 0 {
+		takeBatch()
+	}
+
+	p.quitCh <- struct{}{}
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
