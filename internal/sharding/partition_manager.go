@@ -297,75 +297,37 @@ func (p *PartitionTable) movePartitionData() {
 }
 
 func (p *PartitionTable) fragmentPTable() {
-	var reqSingleChunk model.TCPRequest
-	totalPartitions := len(p.pTable)
-	chunkSize := 4
-	offset := 0
-
-	keys := make([]int, 0, totalPartitions)
-	for k := range p.pTable {
-		keys = append(keys, k)
+	chunkSize := len(p.pTable) / 4
+	if chunkSize == 0 {
+		chunkSize = 20
 	}
-	slices.Sort(keys)
 
-	for offset < totalPartitions {
-		end := offset + chunkSize
-		if end > totalPartitions {
-			end = totalPartitions
-		}
+	batch := make(map[int][]string)
 
-		singleChunks := make(map[int][]string)
-		for _, k := range keys[offset:end] {
-			singleChunks[k] = p.pTable[k]
-		}
-
+	takeBatch := func() {
+		reqSingleChunk := model.TCPRequest{}
 		reqSingleChunk.RequestType = model.ShardingReq
 		reqSingleChunk.StoreRouter = model.ShardingSet
-		reqSingleChunk.PTable = singleChunks
+		reqSingleChunk.PTable = batch
 
-		fmt.Printf("Obtained Chunk: %v\n", singleChunks)
-
-		data, err := json.Marshal(reqSingleChunk)
-		if err != nil {
-			fmt.Println("Errore serializzazione chunk:", err)
-			break
-		}
-
+		data, _ := json.Marshal(reqSingleChunk)
 		p.chunksCh <- data
-		offset = end
+
+	}
+
+	for pId, nodes := range p.pTable {
+		batch[pId] = nodes
+		if len(batch) == chunkSize {
+			takeBatch()
+			batch = make(map[int][]string)
+		}
+	}
+
+	if len(batch) > 0 {
+		takeBatch()
 	}
 
 	p.quitCh <- struct{}{}
-}
-
-/**
-* maxChunks = 2, offset = 0
-* [][] got
-* [][] got    offset = 2 watermark progression = 0, 1, 2
-* [][] got
-* [][] got
-* [][]
- */
-func (p *PartitionTable) generateChunks(maxChunks int, offset int) (map[int][]string, int) {
-	result := make(map[int][]string)
-
-	keys := make([]int, 0, len(p.pTable))
-	for k := range p.pTable {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-
-	start := offset
-	end := offset + maxChunks
-	if end > len(keys) {
-		end = len(keys)
-	}
-
-	for _, k := range keys[start:end] {
-		result[k] = p.pTable[k]
-	}
-
-	return result, end
 }
 
 func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
