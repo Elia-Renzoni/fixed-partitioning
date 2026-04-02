@@ -1,6 +1,6 @@
 # fixed-partitioning
 
-An experimental Go project exploring the **Fixed Partitions** sharding pattern for a small, TCP-based key/value store.
+An experimental Go project exploring the **Fixed Partitions** sharding pattern for a small, TCP-based document database.
 
 The core idea comes from Martin Fowler’s write-up on Fixed Partitions:
 https://martinfowler.com/articles/patterns-of-distributed-systems/fixed-partitions.html
@@ -23,6 +23,52 @@ In this repo, `hash_slots` is configured in `etc/config.yml`, and partition sele
 - Cluster membership list + simple broadcast replication helpers (`internal/replication`)
 - Partition table abstraction for routing keys to partitions and (eventually) partitions to nodes (`internal/sharding`)
 - YAML configuration loader (`internal/options`)
+
+## Rebalancing algorithm
+
+The current rebalancing logic lives in `internal/sharding/partition_manager.go` (`(*PartitionTable).RebalancePartitions` and `doBalance`).
+
+At a high level, it tries to *even out how many partition assignments* each node has, by rewriting the partition table. It does **not** migrate data between nodes yet.
+
+### Data model it rebalances
+
+`PartitionTable.pTable` is a `map[int][]string` where:
+
+- the map key is a partition identifier
+- the slice is the list of node addresses that should receive replication traffic for that partition
+
+`FindNodePartitions()` computes a `perNodeSlots` map by counting how many times each node address appears across all `pTable` values (so replicas count too).
+
+### Target (“average”) load
+
+During `AssignPartitions()`, the code computes a target count per node:
+
+- `totalAssignments = len(pTable) * replicationFactor`
+- `optimalPartitions = totalAssignments / cluster.Len()`
+
+`RebalancePartitions()` uses `optimalPartitions` as the “average” number of assignments each node should have.
+
+### How `RebalancePartitions()` redistributes assignments
+
+1. Count current assignments per node (`FindNodePartitions`).
+2. Build two separate lists of nodes:
+   - **underfull**: nodes with `count(node) < average`
+   - **overfull**: nodes with `count(node) > average`
+3. For each node in the **overfull** list:
+   - compute `delta = count(node) - average` (how many assignments it must shed)
+   - collect `partitionsList`: all partition IDs in which that node appears (`findPartitionsByNodes`)
+4. For each **overfull** node, repeat `delta` times:
+   - choose one partition from its `partitionsList`
+   - remove the overfull node from that partition’s node list
+   - add one node from the **underfull** list, selected in round-robin order
+
+The **underfull** list is treated as a circular buffer: each time you take a node to receive a reassigned partition, you advance an index, wrapping around to the beginning when you reach the end.
+
+### Current limitations / caveats
+
+- It does a single pass and doesn’t recompute deltas after each move.
+- It doesn’t distinguish primaries vs replicas; it only balances “appearances in `[]string`”.
+- The target “average” is derived from `replicationFactor` and the current table size, so it should be treated as an experimental heuristic.
 
 ## Request/response model (high level)
 
@@ -84,4 +130,4 @@ The config loader looks for a YAML file under `./etc` (or under `/tmp/etc`).
 
 ## Status / caveats
 
-This is a learning/experiment repo, not a production system. Expect missing pieces (e.g. durable storage, robust membership, rebalancing, consistent partition assignment, failure handling). In particular, the “coordinator assigns and distributes the partition table” workflow is still in progress.
+This is a learning/experiment repo, not a production system. Expect missing pieces (e.g. durable storage, robust membership, consistent partition assignment, failure handling). The rebalancing logic described above is a prototype and isn’t yet wired into the coordinator workflow that assigns/distributes the partition table.
