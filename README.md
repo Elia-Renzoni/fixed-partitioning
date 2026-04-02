@@ -1,6 +1,6 @@
 # fixed-partitioning
 
-An experimental Go project exploring the **Fixed Partitions** sharding pattern for a small, TCP-based key/value store.
+An experimental Go project exploring the **Fixed Partitions** sharding pattern for a small, TCP-based document database.
 
 The core idea comes from Martin Fowler’s write-up on Fixed Partitions:
 https://martinfowler.com/articles/patterns-of-distributed-systems/fixed-partitions.html
@@ -24,11 +24,11 @@ In this repo, `hash_slots` is configured in `etc/config.yml`, and partition sele
 - Partition table abstraction for routing keys to partitions and (eventually) partitions to nodes (`internal/sharding`)
 - YAML configuration loader (`internal/options`)
 
-## Rebalancing algorithm (prototype)
+## Rebalancing algorithm
 
 The current rebalancing logic lives in `internal/sharding/partition_manager.go` (`(*PartitionTable).RebalancePartitions` and `doBalance`).
 
-At a high level, it tries to *even out how many partition assignments* each node has, by rewriting the partition table (metadata only). It does **not** migrate data between nodes yet.
+At a high level, it tries to *even out how many partition assignments* each node has, by rewriting the partition table. It does **not** migrate data between nodes yet.
 
 ### Data model it rebalances
 
@@ -66,8 +66,6 @@ The **underfull** list is treated as a circular buffer: each time you take a nod
 
 ### Current limitations / caveats
 
-- It mutates the in-memory table only; there is no “move the data” step.
-- It is not currently invoked by the server join/leave workflow (only exercised in `internal/sharding/partition_manager_test.go`).
 - It does a single pass and doesn’t recompute deltas after each move.
 - It doesn’t distinguish primaries vs replicas; it only balances “appearances in `[]string`”.
 - The target “average” is derived from `replicationFactor` and the current table size, so it should be treated as an experimental heuristic.
