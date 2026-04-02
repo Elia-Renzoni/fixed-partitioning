@@ -51,16 +51,18 @@ During `AssignPartitions()`, the code computes a target count per node:
 ### How `RebalancePartitions()` redistributes assignments
 
 1. Count current assignments per node (`FindNodePartitions`).
-2. Split nodes into:
-   - **overfull**: `count(node) > average`
-   - **underfull**: `count(node) < average`
-3. For each node in either group:
-   - compute `distance = count(node) - average`
+2. Build two separate lists of nodes:
+   - **underfull**: nodes with `count(node) < average`
+   - **overfull**: nodes with `count(node) > average`
+3. For each node in the **overfull** list:
+   - compute `delta = count(node) - average` (how many assignments it must shed)
    - collect `partitionsList`: all partition IDs in which that node appears (`findPartitionsByNodes`)
-4. For each **overfull** node, repeat `distance` times:
-   - pick a partition from its `partitionsList`
+4. For each **overfull** node, repeat `delta` times:
+   - choose one partition from its `partitionsList`
    - remove the overfull node from that partition’s node list
-   - add the next **underfull** node in round-robin order (treated as a circular buffer)
+   - add one node from the **underfull** list, selected in round-robin order
+
+The **underfull** list is treated as a circular buffer: each time you take a node to receive a reassigned partition, you advance an index, wrapping around to the beginning when you reach the end.
 
 ### Current limitations / caveats
 
