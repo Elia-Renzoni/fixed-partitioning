@@ -180,6 +180,8 @@ func (s *Server) handleClientReq(ctx model.ConnContext) {
 			return
 		}
 
+		log.Println("received client request")
+
 		if err != nil {
 			res.Message = err.Error()
 			return
@@ -258,6 +260,8 @@ func (s *Server) handleReplicationReq(ctx model.ConnContext) {
 		res = ctx.TCPResponse
 	)
 
+	log.Println("received replication request")
+
 	select {
 	case <-ctx.Ctx.Done():
 		res.Message = ctx.Ctx.Err().Error()
@@ -289,9 +293,12 @@ func (s *Server) handleShardingReq(ctx model.ConnContext) {
 		// handle request
 		switch req.StoreRouter {
 		case model.ShardingGet:
+			log.Println("received sharding get operation")
 			table := s.partitions.ReadPartitionTable()
 			res.Message = table
 		case model.ShardingSet:
+			log.Println("received sharding set operation")
+			log.Printf("merging %v\n", req.PTable)
 			s.partitions.MergePartitions(req.PTable)
 			res.Message = "partition table merged succesfully"
 		}
