@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/fixed-partitioning/internal/model"
 	"github.com/fixed-partitioning/internal/options"
@@ -42,6 +44,8 @@ func main() {
 		if err := sendJoin(opt.GetCoordinatorAddress(), opt.GetServerAddress()); err != nil {
 			log.Printf("warning: join request failed: %v", err)
 		}
+	} else {
+		go applyShardingStrategy(pTable)
 	}
 
 	log.Printf("listening on %s", opt.GetServerAddress())
@@ -71,4 +75,23 @@ func sendJoin(coordinator, self string) error {
 		return fmt.Errorf("got warning %s", res.Warning)
 	}
 	return nil
+}
+
+func applyShardingStrategy(pTable *sharding.PartitionTable) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for tick := range ticker.C {
+		log.Println("probe at", tick)
+		err := pTable.AssignPartitions()
+		if err == nil {
+			break
+		}
+
+		if !errors.Is(err, sharding.ErrLackOfNodes) {
+			panic(err)
+		}
+	}
+
+	log.Println("partitions succesfully applied between nodes")
 }
