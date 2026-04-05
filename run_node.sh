@@ -1,41 +1,67 @@
 #!/bin/bash
 
-SUBNET="192.168.100"        # /24 subnet
-COORDINATOR_PORT="7000"
-SERVER_PORT="8080"
-CONFIG_FILE="etc/config.yml"
-CONTAINER_NAME="fixed-partitioning-$(date +%s)"
-IMAGE_NAME="localhost/project"
-NETWORK_NAME="mynet"
+set -e
+
+SUBNET="${SUBNET:-192.168.100}"
+CONFIG_FILE="${CONFIG_FILE:-etc/config.yml}"
+CONTAINER_NAME="${CONTAINER_NAME:-fixed-partitioning-$(date +%s)}"
+IMAGE_NAME="${IMAGE_NAME:-localhost/project}"
+NETWORK_NAME="${NETWORK_NAME:-mynet}"
+PODMAN_BIN="${PODMAN_BIN:-podman}"
 
 generate_ip() {
-    local octet=$((RANDOM % 254 + 1))   # avoid .0 and .255
+    local octet=$((RANDOM % 254 + 1))
     echo "$SUBNET.$octet"
 }
 
-COORDINATOR=$(grep 'coordinator:' "$CONFIG_FILE" | awk -F'"' '{print $2}' | cut -d':' -f1)
-SERVER_ADDRESS=$(grep 'server_address:' "$CONFIG_FILE" | awk -F':' '{print $1}')
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Config file not found: $CONFIG_FILE" >&2
+    exit 1
+fi
 
-echo "Current coordinator: $COORDINATOR"
-echo "Current server_address: $SERVER_ADDRESS"
+COORDINATOR_ADDR=$(sed -nE 's/^[[:space:]]*coordinator:[[:space:]]*"?([^"]+)"?/\1/p' "$CONFIG_FILE" | head -n1)
+SERVER_ADDRESS=$(sed -nE 's/^[[:space:]]*server_address:[[:space:]]*"?([^"]+)"?/\1/p' "$CONFIG_FILE" | head -n1)
 
-if [ "$COORDINATOR" == "127.0.0.1" ]; then
+COORDINATOR_HOST="${COORDINATOR_ADDR%:*}"
+
+if [ -z "$COORDINATOR_ADDR" ] || [ -z "$SERVER_ADDRESS" ]; then
+    echo "Invalid config.yml" >&2
+    exit 1
+fi
+
+echo "Coordinator: $COORDINATOR_ADDR"
+echo "Server address: $SERVER_ADDRESS"
+
+if [ "$COORDINATOR_HOST" = "127.0.0.1" ] || [ "$COORDINATOR_HOST" = "localhost" ]; then
     STATIC_IP=$(generate_ip)
-    echo "First-time setup, chosen static IP: $STATIC_IP"
+    echo "Bootstrap node. Generated IP: $STATIC_IP"
 
-    sed -i "s|^\s*coordinator:.*|coordinator: \"$STATIC_IP:$COORDINATOR_PORT\"|" "$CONFIG_FILE"
-    sed -i "s|^\s*server_address:.*|server_address: $STATIC_IP:$COORDINATOR_PORT|" "$CONFIG_FILE"
+    sed -i -E "s|^[[:space:]]*coordinator:.*$|coordinator: \"$STATIC_IP:7000\"|" "$CONFIG_FILE"
+    sed -i -E "s|^[[:space:]]*server_address:.*$|server_address: \"$STATIC_IP:7000\"|" "$CONFIG_FILE"
+
     IP_TO_USE="$STATIC_IP"
 else
-    IP_TO_USE=$(generate_ip)
-    echo "Updating server_address only: $IP_TO_USE"
-    sed -i "s|^\s*server_address:.*|server_address: $IP_TO_USE:$SERVER_PORT|" "$CONFIG_FILE"
+    NEW_IP=$(generate_ip)
+    echo "Joining node. Generated IP: $NEW_IP"
+
+    sed -i -E "s|^[[:space:]]*server_address:.*$|server_address: \"$NEW_IP:8000\"|" "$CONFIG_FILE"
+
+    IP_TO_USE="$NEW_IP"
 fi
 
-if ! podman network exists "$NETWORK_NAME"; then
-    podman network create --subnet "${SUBNET}.0/24" "$NETWORK_NAME"
+if [ "${SKIP_PODMAN:-0}" = "1" ]; then
+    exit 0
 fi
 
-podman run -d --name "$CONTAINER_NAME" --network "$NETWORK_NAME" --ip "$IP_TO_USE" "$IMAGE_NAME"
+if ! "$PODMAN_BIN" network exists "$NETWORK_NAME"; then
+    "$PODMAN_BIN" network create --subnet "${SUBNET}.0/24" "$NETWORK_NAME"
+fi
+
+"$PODMAN_BIN" run -d \
+    --name "$CONTAINER_NAME" \
+    --network "$NETWORK_NAME" \
+    --ip "$IP_TO_USE" \
+    --volume "$(pwd)/etc:/project/etc:Z" \
+    "$IMAGE_NAME"
 
 echo "Container '$CONTAINER_NAME' started with IP $IP_TO_USE"
