@@ -238,6 +238,8 @@ func (s *Server) handleJoinReq(ctx model.ConnContext) {
 				return
 			}
 
+			log.Printf("node %s joined succesfully\n", req.NodeAddress)
+
 			replicationReq := model.TCPRequest{
 				RequestType: "replication",
 				StoreRouter: "cluster",
