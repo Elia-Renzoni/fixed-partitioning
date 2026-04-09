@@ -65,10 +65,16 @@ func (s *Server) DoListen() {
 		log.Println("server stopped due to a sever network error")
 	}()
 
+	if s.globalErr != nil {
+		log.Printf("received error: %s", s.globalErr.Error())
+		return
+	}
+
 	s.poolCapacity.Store(100)
 	for {
 		conn, err := s.listener.AcceptTCP()
 		if err != nil {
+			log.Printf("received error: %s", err.Error())
 			break
 		}
 
