@@ -31,6 +31,8 @@ type PartitionTable struct {
 
 const minClusterLen int = 4
 
+var ErrLackOfNodes = errors.New("unable to assign partition due to lack of nodes")
+
 func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTable {
 	return &PartitionTable{
 		hashSlots:         slots,
@@ -44,7 +46,7 @@ func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTa
 // only the coordinator can call this method
 func (p *PartitionTable) AssignPartitions() error {
 	if p.cluster.Len() < minClusterLen {
-		return errors.New("unable to assign partition due to lack of nodes")
+		return ErrLackOfNodes
 	}
 
 	p.mutex.Lock()
