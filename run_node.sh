@@ -57,11 +57,13 @@ if ! "$PODMAN_BIN" network exists "$NETWORK_NAME"; then
     "$PODMAN_BIN" network create --subnet "${SUBNET}.0/24" "$NETWORK_NAME"
 fi
 
-"$PODMAN_BIN" run -d \
+CONTAINER_ID=$("$PODMAN_BIN" run -d \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
     --ip "$IP_TO_USE" \
     --volume "$(pwd)/etc:/project/etc:Z" \
-    "$IMAGE_NAME"
+    "$IMAGE_NAME")
 
-echo "Container '$CONTAINER_NAME' started with IP $IP_TO_USE"
+echo "Container '$CONTAINER_NAME' ($CONTAINER_ID) started with IP $IP_TO_USE"
+
+"$PODMAN_BIN" logs -f "$CONTAINER_ID"
