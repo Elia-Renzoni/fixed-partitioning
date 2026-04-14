@@ -101,6 +101,10 @@ func (s *Server) handleConnection() {
 	}()
 
 	conn := <-s.connPool
+	defer conn.Close()
+
+	serverCtx := model.NewConnContext()
+	defer serverCtx.AbortJob()
 
 	var (
 		bytesRed int
@@ -136,7 +140,6 @@ func (s *Server) handleConnection() {
 		return
 	}
 
-	serverCtx := model.NewConnContext()
 	// Attach decoded request to context handlers expect.
 	serverCtx.TCPRequest = req
 	res := serverCtx.TCPResponse
@@ -154,9 +157,6 @@ func (s *Server) handleConnection() {
 	}
 	data, _ = json.Marshal(res)
 	conn.Write(data)
-
-	conn.Close()
-	serverCtx.AbortJob()
 }
 
 func (s *Server) handleClientReq(ctx model.ConnContext) {
