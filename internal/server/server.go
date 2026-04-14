@@ -100,63 +100,63 @@ func (s *Server) handleConnection() {
 		s.poolCapacity.Add(1)
 	}()
 
-	for conn := range s.connPool {
-		var (
-			bytesRed int
-			readErr  error
-		)
+	conn := <-s.connPool
 
-		bufferPool := bytes.Buffer{}
-		buffer := make([]byte, 2048)
-		for {
-			bytesRed, readErr = conn.Read(buffer)
-			if bytesRed > 0 {
-				bufferPool.Write(buffer[:bytesRed])
+	var (
+		bytesRed int
+		readErr  error
+	)
+
+	bufferPool := bytes.Buffer{}
+	buffer := make([]byte, 2048)
+	for {
+		bytesRed, readErr = conn.Read(buffer)
+		if bytesRed > 0 {
+			bufferPool.Write(buffer[:bytesRed])
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
 			}
-
-			if readErr != nil {
-				if readErr == io.EOF {
-					break
-				}
-				// If the client doesn't half-close, a read timeout will fire.
-				// Treat it as end-of-request so we can still respond.
-				if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
-					break
-				}
-				return
+			// If the client doesn't half-close, a read timeout will fire.
+			// Treat it as end-of-request so we can still respond.
+			if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
+				break
 			}
+			return
 		}
-
-		req := &model.TCPRequest{}
-		data := bufferPool.Bytes()
-		err := json.Unmarshal(data, req)
-		if err != nil {
-			log.Println("[ERR]: something went wrong while unmarhsaling data")
-			break
-		}
-
-		serverCtx := model.NewConnContext()
-		// Attach decoded request to context handlers expect.
-		serverCtx.TCPRequest = req
-		res := serverCtx.TCPResponse
-		switch req.RequestType {
-		case model.ClientReq:
-			s.handleClientReq(serverCtx)
-		case model.ReplicationReq:
-			s.handleReplicationReq(serverCtx)
-		case model.ShardingReq:
-			s.handleShardingReq(serverCtx)
-		case model.JoinReq:
-			s.handleJoinReq(serverCtx)
-		default:
-			res.Message = "invalid request type"
-		}
-		data, _ = json.Marshal(res)
-		conn.Write(data)
-
-		conn.Close()
-		serverCtx.AbortJob()
 	}
+
+	req := &model.TCPRequest{}
+	data := bufferPool.Bytes()
+	err := json.Unmarshal(data, req)
+	if err != nil {
+		log.Println("[ERR]: something went wrong while unmarhsaling data")
+		return
+	}
+
+	serverCtx := model.NewConnContext()
+	// Attach decoded request to context handlers expect.
+	serverCtx.TCPRequest = req
+	res := serverCtx.TCPResponse
+	switch req.RequestType {
+	case model.ClientReq:
+		s.handleClientReq(serverCtx)
+	case model.ReplicationReq:
+		s.handleReplicationReq(serverCtx)
+	case model.ShardingReq:
+		s.handleShardingReq(serverCtx)
+	case model.JoinReq:
+		s.handleJoinReq(serverCtx)
+	default:
+		res.Message = "invalid request type"
+	}
+	data, _ = json.Marshal(res)
+	conn.Write(data)
+
+	conn.Close()
+	serverCtx.AbortJob()
 }
 
 func (s *Server) handleClientReq(ctx model.ConnContext) {
