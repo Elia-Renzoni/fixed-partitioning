@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"time"
 
 	"github.com/fixed-partitioning/internal/model"
@@ -30,12 +29,7 @@ func main() {
 
 	pTable := sharding.NewPartitionTable(opt.GetHashSlots(), opt.GetReplicationFactor(), cluster)
 
-	host, port, err := net.SplitHostPort(opt.GetServerAddress())
-	if err != nil {
-		log.Fatalf("invalid server_address %q: %v", opt.GetServerAddress(), err)
-	}
-
-	srv, err := server.NewServer(host, port, cluster, pTable)
+	srv, err := server.NewServer(opt.GetServerAddress(), cluster, pTable)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
