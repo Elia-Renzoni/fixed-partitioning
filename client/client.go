@@ -65,16 +65,12 @@ func sendClientReq(destinationAddress string, req model.TCPRequest) (model.TCPRe
 	}
 	defer conn.Close()
 
-	_ = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	_, err = conn.Write(data)
 	if err != nil {
 		return model.TCPResponse{}, err
-	}
-
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		_ = tcpConn.CloseWrite()
 	}
 
 	var res model.TCPResponse

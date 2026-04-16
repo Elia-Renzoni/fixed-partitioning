@@ -1,11 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strconv"
@@ -89,8 +87,8 @@ func (s *Server) DoListen() {
 }
 
 func (s *Server) doConfigure(conn *net.TCPConn) {
-	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	conn.SetKeepAlive(true)
 	conn.SetLinger(-1)
 }
@@ -106,37 +104,20 @@ func (s *Server) handleConnection() {
 	serverCtx := model.NewConnContext()
 	defer serverCtx.AbortJob()
 
-	var (
-		bytesRed int
-		readErr  error
-	)
+	buffer := make([]byte, 1<<24)
 
-	bufferPool := bytes.Buffer{}
-	buffer := make([]byte, 2048)
-	for {
-		bytesRed, readErr = conn.Read(buffer)
-		if bytesRed > 0 {
-			bufferPool.Write(buffer[:bytesRed])
-		}
-
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			// If the client doesn't half-close, a read timeout will fire.
-			// Treat it as end-of-request so we can still respond.
-			if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
-				break
-			}
+	n, err := conn.Read(buffer)
+	netErr, ok := err.(net.Error)
+	if ok {
+		if netErr.Timeout() {
+			log.Fatal("timeout error reached")
 			return
 		}
 	}
-
 	req := &model.TCPRequest{}
-	data := bufferPool.Bytes()
-	err := json.Unmarshal(data, req)
+	err = json.Unmarshal(buffer[:n], req)
 	if err != nil {
-		log.Println("[ERR]: something went wrong while unmarhsaling data")
+		log.Fatal("something went wrong while unmarhsaling data")
 		return
 	}
 
@@ -155,7 +136,7 @@ func (s *Server) handleConnection() {
 	default:
 		res.Message = "invalid request type"
 	}
-	data, _ = json.Marshal(res)
+	data, _ := json.Marshal(res)
 	conn.Write(data)
 }
 
