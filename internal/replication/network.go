@@ -6,13 +6,19 @@ import (
 )
 
 func Send(destinationAddress string, message []byte) []byte {
-	conn, err := net.DialTimeout("tcp", destinationAddress, time.Duration(2*time.Second))
+	conn, err := net.DialTimeout("tcp", destinationAddress, 2*time.Second)
 	if err != nil {
 		return nil
 	}
 	defer conn.Close()
 
-	conn.Write(message)
+	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	_, err = conn.Write(message)
+	if err != nil {
+		return nil
+	}
 
 	var (
 		buf  = make([]byte, 2048)
