@@ -136,8 +136,8 @@ func createMultipleListeners(
 ) ([]*server.Server, error) {
 	servers := make([]*server.Server, 0)
 	for i := range clusterLen {
-		port := fmt.Sprintf("505%d", i)
-		s, err := server.NewServer("127.0.0.1", port, members, pTable)
+		addr := fmt.Sprintf("127.0.0.1:505%d", i)
+		s, err := server.NewServer(addr, members, pTable)
 		if err != nil {
 			return nil, err
 		}

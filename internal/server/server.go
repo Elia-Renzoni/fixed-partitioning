@@ -3,12 +3,10 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -31,13 +29,8 @@ type Server struct {
 	partitions      *sharding.PartitionTable
 }
 
-func NewServer(host, port string, members *replication.Cluster, pTable *sharding.PartitionTable) (*Server, error) {
-	n, _ := strconv.Atoi(port)
-	if host == "" && n < 0 || n > 65_535 {
-		return nil, errors.New("invalid network params")
-	}
-
-	address, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(host, port))
+func NewServer(host string, members *replication.Cluster, pTable *sharding.PartitionTable) (*Server, error) {
+	address, err := net.ResolveTCPAddr("tcp", host)
 	if err != nil {
 		return nil, err
 	}
