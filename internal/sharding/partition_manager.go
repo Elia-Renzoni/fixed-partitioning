@@ -29,7 +29,7 @@ type PartitionTable struct {
 	quitCh            chan struct{}
 }
 
-const minClusterLen int = 4
+const MinClusterLen int = 4
 
 var ErrLackOfNodes = errors.New("unable to assign partition due to lack of nodes")
 
@@ -45,7 +45,7 @@ func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTa
 
 // only the coordinator can call this method
 func (p *PartitionTable) AssignPartitions() error {
-	if p.cluster.Len() < minClusterLen {
+	if p.cluster.Len() < MinClusterLen {
 		return ErrLackOfNodes
 	}
 
@@ -338,4 +338,8 @@ func (d *diff) findPartitionsByNodes(ptableCopy map[int][]string) {
 			d.partitionsList = append(d.partitionsList, pId)
 		}
 	}
+}
+
+func (p *PartitionTable) GetHashSlots() int {
+	return p.hashSlots
 }

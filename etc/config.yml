@@ -1,4 +1,0 @@
-coordinator: "127.0.0.1:7000"
-replication_factor: 3
-hash_slots: 128
-server_address: "10.10.0.237:7000"
