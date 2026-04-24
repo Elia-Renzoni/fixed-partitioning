@@ -35,18 +35,18 @@ func main() {
 	}
 
 	if opt.GetCoordinatorAddress() != "" && opt.GetCoordinatorAddress() != opt.GetServerAddress() {
-		if err := sendJoin(opt.GetCoordinatorAddress(), opt.GetServerAddress()); err != nil {
+		if err := sendJoin(opt.GetCoordinatorAddress(), opt.GetServerAddress(), cluster, pTable); err != nil {
 			log.Printf("warning: join request failed: %v", err)
 		}
 	} else {
-		go applyShardingStrategy(pTable)
+		go applyShardingStrategy(pTable, cluster)
 	}
 
 	log.Printf("listening on %s", opt.GetServerAddress())
 	srv.DoListen()
 }
 
-func sendJoin(coordinator, self string) error {
+func sendJoin(coordinator, self string, cluster *replication.Cluster, pTable *sharding.PartitionTable) error {
 	req := model.TCPRequest{
 		RequestType: model.JoinReq,
 		NodeAddress: self,
@@ -61,18 +61,61 @@ func sendJoin(coordinator, self string) error {
 		return fmt.Errorf("no response from coordinator %s", coordinator)
 	}
 
-	var res model.TCPResponse
+	var res struct {
+		Message model.JoinInfo `json:"res"`
+		Warning string         `json:"warn"`
+	}
 	if err := json.Unmarshal(resBytes, &res); err != nil {
 		return err
 	}
 	if res.Warning != "" {
 		return fmt.Errorf("got warning %s", res.Warning)
 	}
+
+	for _, node := range res.Message.Nodes {
+		if node == "" {
+			continue
+		}
+		if err := cluster.AddNode(node); err != nil {
+			// Ignore duplicates; coordinator may include this node address too.
+			if !errors.Is(err, replication.ErrNodeAlreadyPresent) {
+				return err
+			}
+		}
+	}
+
+	if len(res.Message.PTable) > 0 {
+		pTable.MergePartitions(res.Message.PTable)
+		return nil
+	}
+
+	// Best-effort: if the coordinator already has a partition table, fetch it
+	// directly instead of relying on an inbound push.
+	shardReq := model.TCPRequest{
+		RequestType: model.ShardingReq,
+		StoreRouter: model.ShardingGet,
+	}
+	shardData, _ := json.Marshal(shardReq)
+	shardResBytes := replication.Send(coordinator, shardData)
+	if shardResBytes == nil {
+		return nil
+	}
+
+	var shardRes struct {
+		Message model.Shard `json:"res"`
+		Warning string     `json:"warn"`
+	}
+	if err := json.Unmarshal(shardResBytes, &shardRes); err != nil {
+		return nil
+	}
+	if len(shardRes.Message.PTable) > 0 {
+		pTable.MergePartitions(shardRes.Message.PTable)
+	}
 	return nil
 }
 
-func applyShardingStrategy(pTable *sharding.PartitionTable) {
-	ticker := time.NewTicker(20 * time.Millisecond)
+func applyShardingStrategy(pTable *sharding.PartitionTable, c *replication.Cluster) {
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for tick := range ticker.C {
@@ -87,5 +130,18 @@ func applyShardingStrategy(pTable *sharding.PartitionTable) {
 		}
 	}
 
+	table := pTable.ReadPartitionTable()
+	spreadPartitionTable(table, c)
 	log.Println("partitions succesfully applied between nodes")
+}
+
+func spreadPartitionTable(table map[int][]string, c *replication.Cluster) {
+	req := model.TCPRequest{
+		RequestType: "sharding",
+		StoreRouter: "sh-set",
+		PTable:      table,
+	}
+
+	data, _ := json.Marshal(req)
+	replication.BroadcastMessage(data, c.GetAllNodes())
 }

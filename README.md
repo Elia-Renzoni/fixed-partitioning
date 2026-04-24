@@ -126,7 +126,9 @@ podman build -t localhost/project -f Containerfile .
 - `hash_slots`: number of logical partitions (fixed)
 - `replication_factor`: how many additional replicas to target
 
-The config loader looks for a YAML file under `./etc` (or under `/tmp/etc`).
+The config loader looks for a YAML file under `./etc`, `../etc` (handy if you run the binary from `cmd/`), or under `/tmp/etc`.
+
+You can also override the config location via `CONFIG_FILE` (or `FIXED_PARTITIONING_CONFIG`) to point to either a file or a directory.
 
 ## Status / caveats
 
