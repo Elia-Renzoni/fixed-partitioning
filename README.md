@@ -1,135 +1,74 @@
 # fixed-partitioning
 
-An experimental Go project exploring the **Fixed Partitions** sharding pattern for a small, TCP-based document database.
+A small experimental Go project exploring the **Fixed Partitions** sharding pattern (fixed logical partitions) and a partition assignment table (partitions → nodes).
 
-The core idea comes from Martin Fowler’s write-up on Fixed Partitions:
+The core idea is described in Martin Fowler’s article:  
 https://martinfowler.com/articles/patterns-of-distributed-systems/fixed-partitions.html
 
 ## Why “Fixed Partitions”
 
-Hashing a key directly to a node (e.g. `hash(key) % numNodes`) gives a uniform distribution, but when `numNodes` changes most keys remap and you need to move a lot of data.
+Hashing a key directly to a node (e.g. `hash(key) % numNodes`) distributes well, but when `numNodes` changes most keys are remapped and you end up having to move a lot of data.
 
-With **fixed partitions**, the cluster is created with a fixed number of logical partitions (sometimes called “slots”):
+With **fixed partitions**, the cluster has a fixed number of logical partitions (often called “slots”):
 
-- `partition = hash(key) % hash_slots` stays stable even if nodes are added/removed
+- `partition = hash(key) % hashSlots` stays stable even if nodes join/leave
 - a separate **partition table** maps partitions → nodes (and can be updated as the cluster changes)
 
-In this repo, `hash_slots` is configured in `etc/config.yml`, and partition selection is implemented in `internal/sharding/partition_manager.go`.
+In this repo, the implementation lives in `internal/sharding/partition_manager.go`.
 
-## What’s in here
+## What’s in the repository
 
-- TCP server that accepts JSON requests (`internal/server`)
-- In-memory document store implemented as a concurrent skip-list memtable (`internal/store`)
-- Cluster membership list + simple broadcast replication helpers (`internal/replication`)
-- Partition table abstraction for routing keys to partitions and (eventually) partitions to nodes (`internal/sharding`)
-- YAML configuration loader (`internal/options`)
+- `internal/sharding`: `PartitionTable` implementation + tests
 
-## Rebalancing algorithm
+## Data model
 
-The current rebalancing logic lives in `internal/sharding/partition_manager.go` (`(*PartitionTable).RebalancePartitions` and `doBalance`).
+The table is represented as:
 
-At a high level, it tries to *even out how many partition assignments* each node has, by rewriting the partition table. It does **not** migrate data between nodes yet.
-
-### Data model it rebalances
-
-`PartitionTable.pTable` is a `map[int][]string` where:
-
-- the map key is a partition identifier
-- the slice is the list of node addresses that should receive replication traffic for that partition
-
-`FindNodePartitions()` computes a `perNodeSlots` map by counting how many times each node address appears across all `pTable` values (so replicas count too).
-
-### Target (“average”) load
-
-During `AssignPartitions()`, the code computes a target count per node:
-
-- `totalAssignments = len(pTable) * replicationFactor`
-- `optimalPartitions = totalAssignments / cluster.Len()`
-
-`RebalancePartitions()` uses `optimalPartitions` as the “average” number of assignments each node should have.
-
-### How `RebalancePartitions()` redistributes assignments
-
-1. Count current assignments per node (`FindNodePartitions`).
-2. Build two separate lists of nodes:
-   - **underfull**: nodes with `count(node) < average`
-   - **overfull**: nodes with `count(node) > average`
-3. For each node in the **overfull** list:
-   - compute `delta = count(node) - average` (how many assignments it must shed)
-   - collect `partitionsList`: all partition IDs in which that node appears (`findPartitionsByNodes`)
-4. For each **overfull** node, repeat `delta` times:
-   - choose one partition from its `partitionsList`
-   - remove the overfull node from that partition’s node list
-   - add one node from the **underfull** list, selected in round-robin order
-
-The **underfull** list is treated as a circular buffer: each time you take a node to receive a reassigned partition, you advance an index, wrapping around to the beginning when you reach the end.
-
-### Current limitations / caveats
-
-- It does a single pass and doesn’t recompute deltas after each move.
-- It doesn’t distinguish primaries vs replicas; it only balances “appearances in `[]string`”.
-- The target “average” is derived from `replicationFactor` and the current table size, so it should be treated as an experimental heuristic.
-
-## Request/response model (high level)
-
-The server speaks a small JSON protocol (see `internal/model/data.go`):
-
-- `type: "client"`: set/get/delete by key
-- `type: "join"`: join a node to the cluster (sent to a coordinator)
-- `type: "replication"`: internal replication fan-out
-- `type: "sharding"`: partition-table get/set (used to distribute routing metadata)
-
-## Running
-
-### Local (single node)
-
-1. Edit `etc/config.yml` to use a local address, for example:
-
-```yaml
-coordinator: "127.0.0.1:7000"
-server_address: "127.0.0.1:7000"
-hash_slots: 128
-replication_factor: 3
+```go
+map[int][]string // partitionID -> list of nodes (replicas included)
 ```
 
-2. Start the node:
+and is built/updated by methods such as:
 
-```bash
-go run ./cmd
-```
+- `NewPartitionTable(slots, replicationFactor, cluster)`
+- `AssignPartitions()` (coordinator-only, to initialize the table)
+- `GetPartition(key)` (computes the partition for a key)
+- `FindNodes(partitionID)` (returns the nodes assigned)
+- `MergePartitions(table)` (partial partitions merge/replace)
 
-### Local (tests)
+Note: `AssignPartitions()` requires at least `MinClusterLen` nodes (currently `4`), otherwise it returns `ErrLackOfNodes`.
 
-Run the unit/integration tests:
+## Rebalancing (prototype)
 
+`RebalancePartitions()` tries to even out how many total assignments each node has (including replicas) by rewriting the table.
+
+Current limitations:
+
+- it does not migrate data (it only changes the table)
+- it does not distinguish primaries vs replicas (it balances “appearances” in the `[]string`)
+- it includes “chunk” fragmentation and a “forward” routine that, for now, prints to stdout
+
+## Development
+
+### Prerequisites
+- Go (see `go.mod`)
+
+### Test
 ```bash
 make test
 ```
 
-### Containerized (Podman)
-
-There is a `Containerfile` and a helper script (`run_node.sh`) that starts a container on a Podman network and rewrites `etc/config.yml` with a generated IP.
-
-Example:
+or:
 
 ```bash
-podman build -t localhost/project -f Containerfile .
-./run_node.sh
+go test ./...
 ```
 
-## Configuration
+### Build
+```bash
+make build
+```
 
-`etc/config.yml` contains:
+## Status
 
-- `coordinator`: address of the coordinator node (used as the join target)
-- `server_address`: address this node should listen on
-- `hash_slots`: number of logical partitions (fixed)
-- `replication_factor`: how many additional replicas to target
-
-The config loader looks for a YAML file under `./etc`, `../etc` (handy if you run the binary from `cmd/`), or under `/tmp/etc`.
-
-You can also override the config location via `CONFIG_FILE` (or `FIXED_PARTITIONING_CONFIG`) to point to either a file or a directory.
-
-## Status / caveats
-
-This is a learning/experiment repo, not a production system. Expect missing pieces (e.g. durable storage, robust membership, consistent partition assignment, failure handling). The rebalancing logic described above is a prototype and isn’t yet wired into the coordinator workflow that assigns/distributes the partition table.
+This is a learning/experimental repo: APIs and behavior may change, and some aspects (replication factor, rebalancing, chunk “forwarding”) are intentionally prototypical.

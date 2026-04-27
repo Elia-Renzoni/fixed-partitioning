@@ -1,7 +1,6 @@
 package sharding
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -10,22 +9,19 @@ import (
 	"math/rand"
 	"slices"
 	"sync"
-
-	"github.com/fixed-partitioning/internal/model"
-	"github.com/fixed-partitioning/internal/replication"
 )
 
 type PartitionTable struct {
 	hashSlots         int
 	clusterLen        int
-	cluster           *replication.Cluster
+	cluster           []string
 	pTable            map[int][]string
 	hasher            hash.Hash64
 	perNodeSlots      map[string]int
 	mutex             sync.RWMutex
 	replicationFactor int
 	optimalPartitions int
-	chunksCh          chan []byte
+	chunksCh          chan map[int][]string
 	quitCh            chan struct{}
 }
 
@@ -33,7 +29,7 @@ const MinClusterLen int = 4
 
 var ErrLackOfNodes = errors.New("unable to assign partition due to lack of nodes")
 
-func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTable {
+func NewPartitionTable(slots, rp int, cluster []string) *PartitionTable {
 	return &PartitionTable{
 		hashSlots:         slots,
 		pTable:            make(map[int][]string),
@@ -45,7 +41,7 @@ func NewPartitionTable(slots, rp int, cluster *replication.Cluster) *PartitionTa
 
 // only the coordinator can call this method
 func (p *PartitionTable) AssignPartitions() error {
-	if p.cluster.Len() < MinClusterLen {
+	if len(p.cluster) < MinClusterLen {
 		return ErrLackOfNodes
 	}
 
@@ -55,8 +51,8 @@ func (p *PartitionTable) AssignPartitions() error {
 	var errs = p.hashSlots
 
 	for slot := range p.hashSlots {
-		partitionIndex := slot % p.cluster.Len()
-		attachedNode := p.cluster.GetNodeFromLocation(partitionIndex)
+		partitionIndex := slot % len(p.cluster)
+		attachedNode := p.cluster[partitionIndex]
 		if attachedNode != "" && !p.nodeAlreadyPresent(p.pTable[partitionIndex], attachedNode) {
 			p.pTable[partitionIndex] = append(p.pTable[partitionIndex], attachedNode)
 			rfNodes := p.completeNodesWithRF(attachedNode)
@@ -68,7 +64,7 @@ func (p *PartitionTable) AssignPartitions() error {
 	}
 
 	totalAssignments := len(p.pTable) * p.replicationFactor
-	p.optimalPartitions = totalAssignments / p.cluster.Len()
+	p.optimalPartitions = totalAssignments / len(p.cluster)
 
 	if errs > 0 {
 		return fmt.Errorf("assigned only %d partitions", errs)
@@ -88,8 +84,8 @@ func (p *PartitionTable) completeNodesWithRF(attachedNode string) []string {
 		)
 
 		for {
-			nodeID := rand.Intn(p.cluster.Len())
-			selectedNode := p.cluster.GetNodeFromLocation(nodeID)
+			nodeID := rand.Intn(len(p.cluster))
+			selectedNode := p.cluster[nodeID]
 			if selectedNode == attachedNode || slices.Contains(nodes, selectedNode) {
 				continue
 			}
@@ -229,7 +225,7 @@ FIND_DELTAS:
 
 	p.doBalance(lowList, highList)
 
-	p.chunksCh = make(chan []byte)
+	p.chunksCh = make(chan map[int][]string)
 	p.quitCh = make(chan struct{})
 
 	go p.movePartitionData()
@@ -283,7 +279,6 @@ func (p *PartitionTable) movePartitionData() {
 	defer close(p.chunksCh)
 	defer close(p.quitCh)
 
-	aliveNodes := p.cluster.GetAllNodes()
 	for {
 		select {
 		case chunk, ok := <-p.chunksCh:
@@ -291,7 +286,7 @@ func (p *PartitionTable) movePartitionData() {
 				break
 			}
 
-			go replication.BroadcastMessage(chunk, aliveNodes)
+			go fmt.Printf("chunk to forward: %v", chunk)
 		case <-p.quitCh:
 			return
 		}
@@ -307,14 +302,7 @@ func (p *PartitionTable) fragmentPTable() {
 	batch := make(map[int][]string)
 
 	takeBatch := func() {
-		reqSingleChunk := model.TCPRequest{}
-		reqSingleChunk.RequestType = model.ShardingReq
-		reqSingleChunk.StoreRouter = model.ShardingSet
-		reqSingleChunk.PTable = batch
-
-		data, _ := json.Marshal(reqSingleChunk)
-		p.chunksCh <- data
-
+		p.chunksCh <- batch
 	}
 
 	for pId, nodes := range p.pTable {
