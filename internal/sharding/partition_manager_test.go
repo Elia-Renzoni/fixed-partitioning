@@ -5,12 +5,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/fixed-partitioning/internal/replication"
 	"github.com/fixed-partitioning/internal/sharding"
 )
 
 func TestPartitionTable(t *testing.T) {
-	members := replication.NewCluster()
+	var members []string
 
 	// forcing error generation
 	ptable := sharding.NewPartitionTable(500, 0, members)
@@ -27,8 +26,9 @@ func TestPartitionTable(t *testing.T) {
 			helper = 0
 		}
 		address := fmt.Sprintf("127.0.0.1:60%d%d", dec, helper)
-		members.AddNode(address)
+		members = append(members, address)
 	}
+
 	ptable = sharding.NewPartitionTable(500, 3, members)
 	err := ptable.AssignPartitions()
 	if err != nil {
